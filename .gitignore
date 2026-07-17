@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 环境变量（含 API Key）
+.env
+
+# 持久化数据运行时会生成
+researchforge/service/data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 日志
+logs/
+*.log
+
+# 测试缓存
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
