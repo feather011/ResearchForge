@@ -331,6 +331,14 @@ header {
 .history-item:hover .delete-btn { opacity: 1; }
 .delete-btn:hover { color: var(--accent-red); }
 
+.resume-btn {
+  font-size: 14px; color: var(--accent-amber); cursor: pointer;
+  padding: 0 4px; opacity: 0; transition: opacity 0.2s;
+  flex-shrink: 0; line-height: 1;
+}
+.history-item:hover .resume-btn { opacity: 1; }
+.resume-btn:hover { color: var(--accent-teal); }
+
 /* ======================== RESPONSIVE ======================== */
 @media (max-width: 1100px) {
   .app-grid { grid-template-columns: 220px 1fr 180px; }
@@ -569,6 +577,7 @@ header {
           <option value="deep">🔬 Deep 深度</option>
         </select>
         <button class="btn btn-primary" id="btnStart" onClick="startResearch()">▶ 启动</button>
+        <button class="btn btn-amber" id="btnResume" onClick="showResumePicker()" title="从检查点恢复">↻ 恢复</button>
         <button class="btn btn-outline" id="btnTest" onClick="startTest()" title="快速模拟测试SSE事件流">测试SSE</button>
       </div>
     </div>
@@ -1016,6 +1025,78 @@ function startResearch() {
   });
 }
 
+// ======================== RESUME PICKER ========================
+function showResumePicker() {
+  if (STATE.isRunning) return;
+  fetch('/api/checkpoints')
+    .then(r => r.json())
+    .then(data => {
+      const cps = data.checkpoints || [];
+      if (cps.length === 0) {
+        addSystemEvent('没有找到可恢复的检查点（无失败任务）');
+        return;
+      }
+      const topic = document.getElementById('topicInput').value.trim();
+      let filtered = cps;
+      if (topic) {
+        filtered = cps.filter(c => c.topic.includes(topic));
+      }
+      if (filtered.length === 0) {
+        addSystemEvent(`没有匹配 "${topic}" 的可恢复任务，显示全部 ${cps.length} 个`);
+        filtered = cps;
+      }
+      const log = document.getElementById('eventLog');
+      const header = document.createElement('div');
+      header.style.cssText = 'padding:10px 12px;margin-bottom:8px;background:var(--bg-surface);border:1px solid var(--accent-amber);border-radius:var(--radius-md);font-size:13px;color:var(--accent-amber);font-weight:500;';
+      header.innerHTML = `⬇ 点击任务恢复（共 ${filtered.length} 个可恢复检查点）`;
+      log.appendChild(header);
+
+      filtered.forEach(c => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:8px 12px;margin-bottom:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:all 0.15s;display:flex;gap:10px;align-items:center;';
+        item.onmouseover = () => { item.style.borderColor = 'var(--accent-amber)'; item.style.background = 'var(--bg-hover)'; };
+        item.onmouseout = () => { item.style.borderColor = 'var(--border)'; item.style.background = 'var(--bg-elevated)'; };
+        item.onclick = () => doResume(c.task_id);
+        const modeColor = c.mode === 'fast' ? 'var(--accent-teal)' : c.mode === 'standard' ? 'var(--accent-amber)' : 'var(--accent-red)';
+        item.innerHTML = `
+          <span style="font-family:var(--font-display);font-size:11px;color:var(--text-muted);min-width:80px;">#${c.task_id}</span>
+          <span style="flex:1;color:var(--text-primary);font-size:13px;">${escapeHtml(c.topic)}</span>
+          <span style="font-family:var(--font-display);font-size:11px;padding:2px 8px;border-radius:4px;background:${modeColor}20;color:${modeColor};">${c.mode}</span>
+          <span style="font-family:var(--font-display);font-size:11px;color:var(--accent-red);">✗ ${escapeHtml(c.failed_node || 'unknown')}</span>
+          <span style="font-family:var(--font-display);font-size:11px;color:var(--text-muted);">已完成 ${c.completed_nodes.length}步</span>
+        `;
+        log.appendChild(item);
+      });
+      log.scrollTop = log.scrollHeight;
+    })
+    .catch(err => addSystemEvent(`获取检查点列表失败: ${err.message}`, 'error'));
+}
+
+function doResume(taskId) {
+  if (STATE.isRunning) return;
+  resetForNewRun();
+  STATE.isRunning = true;
+  STATE.startTime = Date.now();
+  disableControls();
+  setStatus('running', '恢复中...');
+  addSystemEvent(`正在恢复研究 #${taskId}...`);
+
+  fetch(`/api/research/${taskId}/resume`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      STATE.currentId = data.research_id;
+      document.getElementById('activeIdDisplay').textContent = `#${data.research_id} [恢复]`;
+      addSystemEvent(`恢复已启动: #${data.research_id}`);
+      connectSSE(data.research_id);
+    })
+    .catch(err => {
+      addSystemEvent(`恢复启动失败: ${err.message}`, 'error');
+      STATE.isRunning = false;
+      setStatus('error', '恢复失败');
+      enableControls();
+    });
+}
+
 function startTest() {
   if (STATE.isRunning) return;
   resetForNewRun();
@@ -1225,9 +1306,13 @@ function renderHistory() {
   list.innerHTML = STATE.history.map(h => {
     const rid = h.research_id || h.id;
     const active = STATE.activeSessionId === rid ? ' style="background:var(--bg-hover);border-color:var(--accent-purple);"' : '';
+    const isFailed = h.state === 'failed';
+    const isDeep = (h.mode || '').toLowerCase() === 'deep';
+    const showResumeBtn = isFailed && !isDeep;
     return `<div class="history-item state-${h.state}"${active}>
       <span class="topic" onclick="clickHistory('${rid}')">${h.topic}</span>
       <span class="state-label">${h.state}</span>
+      ${showResumeBtn ? `<span class="resume-btn" onclick="event.stopPropagation();resumeFromHistory('${rid}')" title="恢复研究">↻</span>` : ''}
       <span class="delete-btn" onclick="event.stopPropagation();deleteResearch('${rid}')" title="删除">✕</span>
     </div>`;
   }).join('');
@@ -1349,6 +1434,46 @@ function deleteResearch(id) {
       }
     })
     .catch(err => addSystemEvent(`删除失败: ${err.message}`, 'error'));
+}
+
+/**
+ * 从历史列表恢复失败任务
+ * 点击后：
+ *   1. 调用 POST /api/research/{id}/resume
+ *   2. 状态标记为运行中
+ *   3. 连接 SSE 流
+ *   4. 禁用重复点击
+ */
+function resumeFromHistory(id) {
+  if (STATE.isRunning) {
+    addSystemEvent('当前已有研究在运行，请等待完成', 'error');
+    return;
+  }
+
+  resetForNewRun();
+  STATE.isRunning = true;
+  STATE.startTime = Date.now();
+  disableControls();
+  setStatus('running', '恢复中...');
+  addSystemEvent(`正在恢复任务 #${id}...`);
+
+  fetch(`/api/research/${id}/resume`, { method: 'POST' })
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      STATE.currentId = id;
+      document.getElementById('activeIdDisplay').textContent = `#${id} [恢复]`;
+      addSystemEvent(`恢复已启动: #${id}`);
+      connectSSE(id);
+    })
+    .catch(err => {
+      addSystemEvent(`恢复失败: ${err.message}`, 'error');
+      STATE.isRunning = false;
+      setStatus('error', '恢复失败');
+      enableControls();
+    });
 }
 
 function escapeHtml(s) {

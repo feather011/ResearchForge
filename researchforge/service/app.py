@@ -23,6 +23,7 @@ from .sse import event_stream, create_progress_event, create_review_event, creat
 from .persist import save_task, load_task, list_tasks
 from .config import settings
 from ..orchestration import ResearchMode
+from ..orchestration.checkpoint_store import CheckpointStore
 from ..trace import TraceCollector
 
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +48,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 research_tasks: Dict[str, dict] = {}
 limiter = RateLimiter(max_requests=settings.RATE_LIMIT_MAX, window_seconds=settings.RATE_LIMIT_WINDOW)
 sse_queues: Dict[str, asyncio.Queue] = {}
+checkpoint_store = CheckpointStore()
 
 
 def _record_event(task: dict, event_type: str, payload: dict):
@@ -89,6 +91,7 @@ async def root():
             "GET  /api/status/{id}": "查询状态",
             "GET  /api/stream/{id}": "SSE实时推送",
             "POST /api/review/{id}": "人工审核",
+            "POST /api/research/{id}/resume": "恢复研究",
             "POST /api/sse-test": "SSE快速模拟测试",
         }
     }
@@ -157,8 +160,8 @@ def run_research_sync(research_id: str, topic: str, llm, mode: ResearchMode):
         task["state"] = "running"
 
         # 使用 ResearchService 执行
-        svc = ResearchService(llm=llm)
-        result = svc.run(topic, mode=mode, progress_callback=progress_callback, tracer=tracer)
+        svc = ResearchService(llm=llm, checkpoint_store=checkpoint_store)
+        result = svc.run(topic, mode=mode, progress_callback=progress_callback, tracer=tracer, task_id=research_id)
 
         # 检查是否需要人工审核
         if result.get("require_human_review"):
@@ -389,6 +392,24 @@ async def sse_test():
     return ResearchResponse(research_id=research_id, topic="[SSE测试]模拟研究", state="running", message="SSE模拟测试已启动")
 
 
+@app.get("/api/checkpoints")
+async def list_recoverable_checkpoints():
+    """列出可恢复的检查点（failed 状态的）"""
+    ids = checkpoint_store.list_ids()
+    recoverable = []
+    for rid in ids[-20:]:  # 最近 20 个
+        state = checkpoint_store.load(rid)
+        if state and state.status == "failed":
+            recoverable.append({
+                "task_id": rid,
+                "topic": state.topic,
+                "mode": state.mode.value if hasattr(state.mode, "value") else str(state.mode),
+                "failed_node": state.failed_node or "",
+                "completed_nodes": list(state.completed_nodes or []),
+            })
+    return {"checkpoints": recoverable}
+
+
 @app.get("/api/history")
 async def get_history():
     """获取历史研究列表"""
@@ -400,8 +421,20 @@ async def get_history():
                 "research_id": rid,
                 "topic": task.get("topic", ""),
                 "state": task.get("state", ""),
+                "mode": task.get("mode", ""),
                 "time": 0,
             })
+    # 对 file-persisted 任务也补充 mode（已有 research_id）
+    for t in tasks:
+        rid = t.get("research_id", t.get("id", ""))
+        if not t.get("mode") and rid:
+            # 从检查点读取 mode
+            state = checkpoint_store.load(rid)
+            if state:
+                mode_val = state.mode
+                if hasattr(mode_val, "value"):
+                    mode_val = mode_val.value
+                t["mode"] = str(mode_val)
     return {"tasks": tasks}
 
 
@@ -430,6 +463,159 @@ async def delete_research(research_id: str):
     if fpath.exists():
         fpath.unlink()
     return {"status": "deleted", "research_id": research_id}
+
+
+@app.post("/api/research/{research_id}/resume")
+async def resume_research(research_id: str):
+    """恢复一项已中断的研究"""
+    from researchforge.research_service import ResearchService
+
+    # 检查检查点是否存在
+    state = checkpoint_store.load(research_id)
+    if state is None:
+        raise HTTPException(404, detail=f"研究 {research_id} 不存在或已损坏，无法恢复")
+
+    if state.status == "completed":
+        raise HTTPException(400, detail=f"研究已完成，无需恢复")
+
+    if state.mode == ResearchMode.DEEP:
+        raise HTTPException(400, detail="Deep 模式暂不支持断点恢复")
+
+    # 初始化或更新内存记录
+    research_tasks[research_id] = {
+        "topic": state.topic,
+        "state": "pending",
+        "mode": state.mode.value if hasattr(state.mode, "value") else state.mode,
+        "report": None,
+    }
+    if research_id not in sse_queues:
+        sse_queues[research_id] = asyncio.Queue()
+
+    from researchforge.core import BailianProvider, OllamaProvider
+    if settings.LLM_PROVIDER == "ollama":
+        llm = OllamaProvider(model=settings.MODEL, base_url=settings.OLLAMA_BASE_URL, timeout=settings.LLM_TIMEOUT)
+    else:
+        llm = BailianProvider(model=settings.MODEL, timeout=settings.LLM_TIMEOUT)
+
+    thread = threading.Thread(
+        target=_run_resume_sync,
+        args=(research_id, llm),
+    )
+    thread.daemon = True
+    thread.start()
+
+    logger.info(f"恢复研究: {research_id}")
+    return ResearchResponse(
+        research_id=research_id,
+        topic=state.topic,
+        state="pending",
+        message="研究已开始恢复",
+    )
+
+
+def _run_resume_sync(research_id: str, llm):
+    """在线程中执行恢复"""
+    from researchforge.research_service import ResearchService
+
+    task = research_tasks.get(research_id, {})
+    queue = sse_queues.get(research_id)
+    tracer = TraceCollector(run_id=research_id)
+
+    try:
+        task["state"] = "initializing"
+        if queue:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            evt = create_progress_event(0, 10, "System", "正在恢复研究...")
+            loop.run_until_complete(queue.put(evt))
+            _record_event(task, "progress", evt["payload"])
+
+        def progress_callback(agent_name, message, extra_data=None):
+            if queue:
+                try:
+                    if extra_data:
+                        evt = create_progress_event(1, 10, agent_name, message, sources=extra_data.get("sources"))
+                    else:
+                        evt = create_progress_event(1, 10, agent_name, message)
+                    loop.run_until_complete(queue.put(evt))
+                    _record_event(task, "progress", evt["payload"])
+                except:
+                    pass
+
+        def trace_callback(trace_event):
+            if not queue:
+                return
+            try:
+                evt = create_trace_event(trace_event.to_dict())
+                loop.run_until_complete(queue.put(evt))
+                _record_event(task, "trace", evt["payload"])
+            except:
+                pass
+
+        tracer.callback = trace_callback
+
+        def heartbeat_push():
+            import time as t2
+            while task.get("state") in ("running", "initializing"):
+                t2.sleep(15)
+                if queue:
+                    try:
+                        evt = create_progress_event(1, 10, "System", "处理中...")
+                        loop.run_until_complete(queue.put(evt))
+                    except:
+                        pass
+
+        hb_thread = threading.Thread(target=heartbeat_push)
+        hb_thread.daemon = True
+        hb_thread.start()
+
+        task["state"] = "running"
+
+        svc = ResearchService(llm=llm, checkpoint_store=checkpoint_store)
+        result = svc.resume(research_id, progress_callback=progress_callback, tracer=tracer)
+
+        if result.get("require_human_review"):
+            import uuid as _uuid
+            review_id = _uuid.uuid4().hex[:8]
+            task["state"] = "awaiting_review"
+            task["intervention_id"] = review_id
+            task["report"] = result.get("report", "")
+
+            if queue:
+                preview = result.get("report", "")[:1000]
+                evt = create_review_event(review_id, "研究报告已完成，请审核", preview)
+                loop.run_until_complete(queue.put(evt))
+                _record_event(task, "review", evt["payload"])
+            save_task(research_id, task)
+            return
+
+        task["state"] = "completed"
+        task["report"] = result["report"]
+
+        if queue:
+            evt = create_complete_event(
+                report=result["report"],
+                stats=result.get("stats", {}),
+                claim_verification=result.get("claim_verification", {}),
+                audit=result.get("audit", {}),
+                mode=result.get("mode", ""),
+                duration_s=result.get("_duration_s"),
+            )
+            loop.run_until_complete(queue.put(evt))
+            _record_event(task, "complete", evt["payload"])
+        save_task(research_id, task)
+        sse_queues.pop(research_id, None)
+
+    except Exception as e:
+        task["state"] = "failed"
+        logger.error(f"恢复失败: {e}")
+        save_task(research_id, task)
+        if queue:
+            try:
+                evt = {"type": "error", "payload": {"error": str(e)}}
+                loop.run_until_complete(queue.put(evt))
+            except:
+                pass
 
 
 def _cleanup_stale_tasks():

@@ -27,8 +27,9 @@ class ResearchService:
       2. 结果组装
     """
 
-    def __init__(self, llm: LLMProvider):
+    def __init__(self, llm: LLMProvider, checkpoint_store=None):
         self.llm = llm
+        self._ck = checkpoint_store
 
     def run(
         self,
@@ -36,10 +37,12 @@ class ResearchService:
         mode: ResearchMode = ResearchMode.FAST,
         progress_callback: Optional[Callable] = None,
         tracer=None,
+        task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """执行一次研究"""
         if mode == ResearchMode.DEEP:
             return self._run_deep(topic, progress_callback, tracer=tracer)
+        self._explicit_task_id = task_id  # 供 _run_standard 使用
         return self._run_standard(topic, mode, progress_callback, tracer=tracer)
 
     def _run_deep(self, topic: str, progress_callback, tracer=None) -> Dict[str, Any]:
@@ -111,7 +114,7 @@ class ResearchService:
         # Write
         if progress_callback:
             progress_callback("WriterAgent", "撰写报告...")
-        report = run_write_node(state, self.llm)
+        report = run_write_node(state, self.llm, mode="deep")
         state.report = report
 
         if result["conflicts"]:
@@ -134,7 +137,7 @@ class ResearchService:
             if audit.suggestions:
                 if progress_callback:
                     progress_callback("WriterAgent", f"审计发现 {len(audit.issues)} 个问题，重写...")
-                state.report = run_write_node(state, self.llm, extra_instructions=audit.suggestions)
+                state.report = run_write_node(state, self.llm, extra_instructions=audit.suggestions, mode="deep")
                 _rewritten = 1
                 # 重写后重新审计
                 audit = run_audit_node(state, self.llm)
@@ -185,9 +188,41 @@ class ResearchService:
         tracer=None,
     ) -> Dict[str, Any]:
         """Fast / Standard 模式 — 委托给 ResearchGraph.execute()"""
-        graph = ResearchGraph(mode=mode)
-        result = graph.execute(topic, self.llm, progress_callback, tracer=tracer)
+        task_id = getattr(self, '_explicit_task_id', None)
+        graph = ResearchGraph(mode=mode, checkpoint_store=self._ck, task_id=task_id)
+        result = graph.execute(topic, self.llm, progress_callback, tracer=tracer, _task_id=task_id)
         # 是否进入人工审核阶段
+        result["require_human_review"] = (
+            mode != ResearchMode.FAST
+            and graph.policy.require_human_review
+        )
+        return result
+
+    def resume(
+        self,
+        task_id: str,
+        progress_callback: Optional[Callable] = None,
+        tracer=None,
+    ) -> Dict[str, Any]:
+        """从检查点恢复一项研究"""
+        if not self._ck:
+            raise RuntimeError("恢复失败：未配置 CheckpointStore")
+
+        state = self._ck.load(task_id)
+        if state is None:
+            raise ValueError(f"检查点不存在或已损坏: {task_id}")
+        if state.status == "completed":
+            raise ValueError(f"任务已完成，无需恢复: {task_id}")
+
+        mode = state.mode
+        if isinstance(mode, str):
+            mode = ResearchMode(mode)
+
+        if mode == ResearchMode.DEEP:
+            raise NotImplementedError("Deep 模式暂不支持断点恢复")
+
+        graph = ResearchGraph(mode=mode, checkpoint_store=self._ck)
+        result = graph.resume(task_id, self.llm, progress_callback, tracer=tracer)
         result["require_human_review"] = (
             mode != ResearchMode.FAST
             and graph.policy.require_human_review

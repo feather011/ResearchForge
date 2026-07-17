@@ -70,12 +70,12 @@ class Settings:
         self.LLM_PROVIDER: str = (
             os.environ.get("LLM_PROVIDER")
             or dotenv_vars.get("LLM_PROVIDER")
-            or "ollama"
+            or "bailian"
         )
         self.MODEL: str = (
             os.environ.get("RESEARCHFORGE_MODEL")
             or dotenv_vars.get("RESEARCHFORGE_MODEL")
-            or "qwen3.5:9b"
+            or "kimi-k2.6"
         )
         self.OLLAMA_BASE_URL: str = (
             os.environ.get("OLLAMA_BASE_URL")

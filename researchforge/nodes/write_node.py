@@ -13,19 +13,21 @@ def run_write_node(
     state: ResearchState,
     llm: LLMProvider,
     extra_instructions: str = "",
+    mode: str = "standard",
 ) -> str:
     """
     撰写研究报告
 
-    原理：
-    1. 把所有证据拼成按来源分组的上下文
-    2. 调用 LLM 生成带 [来源X] 引用的报告
-    3. 引用指向 Evidence 的 source_id
-
-    extra_instructions: 审计发现的问题和建议，让 LLM 修正后重写
-
-    返回: 报告字符串（含引用）
+    mode: fast → 精简（~300字）, standard → 适中（~800字）, deep → 详细（~1500字）
     """
+    # 按模式选长度要求
+    length_map = {
+        "fast": "不少于300字，精简扼要，直接列出核心发现",
+        "standard": "不少于800字，内容充实，结构完整",
+        "deep": "不少于1500字，深入详细，多维度分析",
+    }
+    length_req = length_map.get(mode, "不少于800字")
+
     # 按来源分组
     from collections import defaultdict
     by_source = defaultdict(list)
@@ -51,7 +53,7 @@ def run_write_node(
 - 无依据的推测替换为有证据支持的内容
 - 覆盖所有研究问题"""
 
-    prompt = f"""你是一个研究专家。基于以下材料撰写一篇详细的、不少于1500字的研究报告。
+    prompt = f"""你是一个研究专家。基于以下材料撰写一篇{length_req}的研究报告。
 
 【研究主题】
 {state.topic}
@@ -70,13 +72,12 @@ def run_write_node(
 4. 结论与展望
 
 要求：
-- 字数不少于1500字
+- {length_req}
 - 每条关键信息必须标注 [来源X]
-- 分析要深入、有层次
 - 内容充实，论据充分"""
 
     result = llm.generate(prompt)
-    # 如果 LLM 没写够长度，简单补一段说明
-    if len(result) < 500:
+    # Fast 模式不用补长
+    if len(result) < 200:
         result += f"\n\n---\n*注：本次研究基于 {len(state.evidences)} 条证据撰写，因材料有限报告篇幅较短。*"
     return result

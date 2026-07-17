@@ -26,3 +26,13 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# 设计与架构文档（本地保留，不上传 GitHub）
+docs/
+RESEARCHFORGE_ARCHITECTURE.md
+ResearchForge_三种运行模式统一架构设计.md
+kimi给的选题.md
+
+# 评价数据集（含测试数据）
+evals/dataset.json
+evals/evaluation_report.json

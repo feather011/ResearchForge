@@ -93,13 +93,20 @@ def main():
     print(f"模型: {_cfg.MODEL} ({_cfg.LLM_PROVIDER})")
     print("=" * 60)
 
-    # 初始化 LLM
+    # 初始化 LLM（根据配置自动选择）
     try:
-        llm = OllamaProvider(
-            model=_cfg.MODEL,
-            base_url=_cfg.OLLAMA_BASE_URL,
-            timeout=_cfg.LLM_TIMEOUT,
-        )
+        if _cfg.LLM_PROVIDER == "ollama":
+            from researchforge.core import OllamaProvider
+            llm = OllamaProvider(
+                model=_cfg.MODEL,
+                base_url=_cfg.OLLAMA_BASE_URL,
+                timeout=_cfg.LLM_TIMEOUT,
+            )
+        else:
+            llm = BailianProvider(
+                model=_cfg.MODEL,
+                timeout=_cfg.LLM_TIMEOUT,
+            )
     except Exception as e:
         print(f"[错误] LLM 初始化失败: {e}")
         sys.exit(1)

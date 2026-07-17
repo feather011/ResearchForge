@@ -58,7 +58,7 @@ class Planner:
 
     def _build_prompt(self, query: str) -> str:
         """构建Prompt"""
-        return f"""你是一个任务规划器。根据用户查询，分解为多个可执行步骤。
+        return f"""你是一个任务规划器。根据用户查询，分解为多个独立的搜索查询。
 
 ## 用户查询
 {query}
@@ -67,14 +67,14 @@ class Planner:
 请以JSON格式返回，包含以下字段：
 - reasoning: 你的推理过程
 - steps: 步骤列表，每个步骤包含：
-  - description: 步骤描述
-  - action: 要执行的行动（如web_search, calculator, finish）
-  - action_input: 行动参数（JSON对象）
+  - description: 可以直接输入搜索引擎的搜索短语（不要带"搜索"、"分析"、"研究"等动词前缀）
+  - action: 要执行的行动（固定为 web_search）
+  - action_input: 行动参数（JSON对象，query字段放搜索短语）
 
 注意：
 1. 最多{self.max_steps}个步骤
-2. 最后一个步骤应该是finish，给出最终答案
-3. 每个步骤应该是独立可执行的
+2. 每个步骤是独立的搜索查询
+3. description 必须是纯搜索短语，例如：用户问"文艺复兴" → description="文艺复兴 起源 背景 时间"
 
 请直接返回JSON，不要添加其他内容："""
 

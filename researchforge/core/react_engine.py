@@ -120,7 +120,7 @@ class LLMProvider(ABC):
 class BailianProvider(LLMProvider):
     """百炼API提供者（DashScope）"""
 
-    def __init__(self, api_key: str = None, model: str = "glm-5.2", timeout: float = 120.0):
+    def __init__(self, api_key: str = None, model: str = "kimi-k2.6", timeout: float = 600.0):
         try:
             from openai import OpenAI
         except ImportError:

@@ -103,10 +103,10 @@ class ResearchWorker:
         return self._result()
 
     def _make_sub_plan(self) -> List[str]:
-        """LLM 将子任务拆为 2-3 个搜索方向"""
-        prompt = f"""你是一个研究助手。需要研究以下课题：{self.task}
-请将研究课题拆解为 2-3 个具体的搜索方向，每个方向是独立可搜索的短语。
-每行一个，不要编号："""
+        """将子任务拆为 2-3 个搜索关键词"""
+        prompt = f"""你是一个研究助手。研究课题：{self.task}
+请将研究课题拆解为 2-3 个可直接输入搜索引擎的搜索短语，每行一个。
+每个短语不要带"搜索"、"分析"等动词，直接输出关键词组合。"""
         try:
             result = self.llm.generate(prompt)
             lines = [l.strip() for l in result.split("\n") if l.strip() and not l.startswith("你")]
@@ -149,11 +149,16 @@ class LeadResearcher:
         self.llm = llm
 
     def make_plan(self, topic: str, num_workers: int = 5) -> List[str]:
-        """将研究主题拆分为多个子任务"""
+        """将研究主题拆分为多个独立搜索关键词"""
         prompt = f"""你是一个首席研究员。研究主题：{topic}
-请将研究主题拆分为 {num_workers} 个子任务，每个子任务是一个明确的研究方向。
-直接返回子任务列表，每行一个：
-1. 子任务描述
+请将研究主题拆分为 {num_workers} 个独立的搜索查询，每行一个。
+每个搜索查询应该是可以直接输入搜索引擎的短语，不要带"搜索"、"分析"等动词。
+
+示例：
+用户主题"人工智能" → "AI 发展历史 关键技术"、"Transformer 大模型 原理"、"AI 应用 行业 案例"
+
+直接返回搜索查询列表，每行一个：
+1. 关键词 关键词 关键词
 2. ..."""
         result = self.llm.generate(prompt)
         tasks = []
@@ -166,7 +171,7 @@ class LeadResearcher:
                     tasks.append(task)
         tasks = tasks[:num_workers]
         if not tasks:
-            tasks = [f"搜索{topic}的基本信息", f"分析{topic}的核心内容", f"研究{topic}的最新发展"]
+            tasks = [f"文艺复兴 起源 背景", f"文艺复兴 代表人物", f"文艺复兴 历史影响"]
         return tasks
 
     def merge_results(self, worker_results: List[dict]) -> dict:

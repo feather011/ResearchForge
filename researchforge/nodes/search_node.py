@@ -1,11 +1,11 @@
 """
 SearchNode — 搜索节点
 
-对每个子问题执行 Bing 搜索，返回 Source 列表
-搜索前用 LLM 提取关键词，提高搜索命中率
+对每个子问题执行级联搜索（Google→Bing→DuckDuckGo），返回 Source 列表
+直接用问题原文搜索，不调 LLM 提取关键词（慢模型上每次 15-25s，纯浪费）
 """
 
-from typing import List, Optional
+from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import count
 from ..orchestration.research_state import Source
@@ -29,12 +29,10 @@ def run_search_node(
     llm=None,
 ) -> List[Source]:
     """
-    并行搜索每个子问题（搜索前用 LLM 提取关键词）
+    并行搜索每个子问题
 
-    原理：
-    1. 对每个子问题先用 LLM 提取短关键词（3-5个词）
-    2. 用关键词调 Bing 搜索
-    3. 把搜索结果转为标准化的 Source 对象
+    直接用问题原文作为搜索词，并行搜索所有问题。
+    不调 LLM 提取关键词——对 k2.6 这类慢模型，每次关键词提取 15-25s，4 个问题浪费 1-2 分钟。
 
     返回: [Source(id, url, title, snippet), ...]
     """
@@ -45,7 +43,7 @@ def run_search_node(
     with ThreadPoolExecutor(max_workers=min(len(questions), 5)) as pool:
         futures = {}
         for qi, question in enumerate(questions):
-            futures[pool.submit(_search_single, question, sources_per_question, use_real_search, llm)] = qi
+            futures[pool.submit(_search_single, question, sources_per_question, use_real_search)] = qi
 
         for f in as_completed(futures):
             try:
@@ -72,43 +70,25 @@ def _search_single(
     question: str,
     sources_per_question: int,
     use_real_search: bool,
-    llm=None,
 ) -> List[Source]:
     """单个问题搜索（并行 worker 用）"""
     tool = WebSearchTool(use_real_search=use_real_search)
     results: List[Source] = []
 
-    # 提取搜索关键词（缩短长查询）
-    if llm and len(question) > 20:
-        try:
-            kw_prompt = f"将以下查询简化为3-5个搜索关键词（中文或英文，空格分隔）: {question}"
-            keywords = llm.generate(kw_prompt).strip()
-            keywords = " ".join(keywords.split()[:5])
-        except Exception:
-            keywords = question
-    else:
-        keywords = question
+    # 直接用问题原文搜索，不调 LLM 提取关键词（k2.6 慢模型上每次 15-25s，纯浪费）
+    keywords = question[:60]
 
-    result = tool.run(keywords)
+    result = tool.run(keywords, timeout=5)
 
-    # 搜索失败，英文兜底
+    # 搜索失败，直接返回占位
     if result.startswith("[搜索失败") or result.startswith("[模拟搜索") or result == f"未找到「{keywords}」的相关结果":
-        if not (keywords and all(ord(c) < 128 for c in keywords)):
-            try:
-                en_keywords = f"Renaissance {keywords}"
-                result2 = tool.run(en_keywords)
-                if result2 and not result2.startswith("["):
-                    result = result2
-            except Exception:
-                pass
-        if result.startswith("[搜索失败") or result.startswith("[模拟搜索") or result == f"未找到「{keywords}」的相关结果":
-            results.append(Source(
-                id=f"来源{next(_source_counter)}",
-                title=question[:80],
-                snippet=result[:300],
-                url="",
-            ))
-            return results
+        results.append(Source(
+            id=f"来源{next(_source_counter)}",
+            title=question[:80],
+            snippet=result[:300],
+            url="",
+        ))
+        return results
 
     # 解析搜索结果
     blocks = result.split("\n\n")
