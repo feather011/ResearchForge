@@ -142,27 +142,23 @@ PASSED: 是/否
 修改建议（如果需要改写，给出具体方向）：
 建议1
 建议2"""
-    try:
-        result = llm.generate(prompt)
-        has_issues = not result.strip().upper().startswith("PASSED: 是")
+    result = llm.generate(prompt)  # 不吞噬异常，由调用方处理重试
+    has_issues = not result.strip().upper().startswith("PASSED: 是")
 
-        if has_issues:
-            in_suggestions = False
-            for line in result.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("修改建议"):
-                    in_suggestions = True
-                    continue
-                if line.startswith("- ") and not in_suggestions:
-                    text = line[2:]
-                    if len(text) > 3:
-                        issues.append(text)
-                elif in_suggestions and line and "建议" not in line[:4]:
-                    suggestions.append(line)
-
-    except Exception:
-        pass
+    if has_issues:
+        in_suggestions = False
+        for line in result.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("修改建议"):
+                in_suggestions = True
+                continue
+            if line.startswith("- ") and not in_suggestions:
+                text = line[2:]
+                if len(text) > 3:
+                    issues.append(text)
+            elif in_suggestions and line and "建议" not in line[:4]:
+                suggestions.append(line)
 
     return issues, suggestions

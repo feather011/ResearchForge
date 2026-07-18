@@ -110,14 +110,13 @@ class TestResearchServiceResume:
         with pytest.raises(ValueError, match="已完成"):
             svc.resume(ids[-1])
 
-    def test_resume_deep_raises(self, monkeypatch, svc, ck):
-        """Deep 模式恢复时抛出 NotImplementedError"""
-        # 创建一个 Deep 模式的检查点（直接存一个 Deep 状态）
+    def test_resume_deep_no_worker_record_raises(self, monkeypatch, svc, ck):
+        """Deep 模式无 Worker 记录时恢复抛出错误"""
         from researchforge.orchestration import ResearchState
         state = ResearchState(mode=ResearchMode.DEEP, topic="deep测试", task_id="deep_test")
         ck.save(state)
 
-        with pytest.raises(NotImplementedError, match="不支持"):
+        with pytest.raises(RuntimeError, match="无 Worker 记录"):
             svc.resume("deep_test")
 
     def test_resume_without_store_raises(self):

@@ -1307,8 +1307,7 @@ function renderHistory() {
     const rid = h.research_id || h.id;
     const active = STATE.activeSessionId === rid ? ' style="background:var(--bg-hover);border-color:var(--accent-purple);"' : '';
     const isFailed = h.state === 'failed';
-    const isDeep = (h.mode || '').toLowerCase() === 'deep';
-    const showResumeBtn = isFailed && !isDeep;
+    const showResumeBtn = isFailed;
     return `<div class="history-item state-${h.state}"${active}>
       <span class="topic" onclick="clickHistory('${rid}')">${h.topic}</span>
       <span class="state-label">${h.state}</span>

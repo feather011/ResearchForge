@@ -47,8 +47,13 @@ def setup_logger(name: str = "ReActAgent", log_file: str = "logs/agent.log") -> 
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    # 文件handler
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    # 文件handler（支持轮转，最多保留 5MB × 3 个备份）
+    from logging.handlers import RotatingFileHandler
+    file_handler = RotatingFileHandler(
+        log_file, encoding='utf-8',
+        maxBytes=5 * 1024 * 1024,  # 5MB
+        backupCount=3,  # 保留 3 个备份
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

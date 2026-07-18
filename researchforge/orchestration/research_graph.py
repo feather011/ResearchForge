@@ -18,6 +18,7 @@ import logging
 from .mode_policy import ModePolicy, ResearchMode
 from .research_state import ResearchState
 from .checkpoint_store import CheckpointStore
+from .retry_policy import searching_policy, fetching_policy, llm_policy
 
 logger = logging.getLogger("ResearchGraph")
 
@@ -159,6 +160,69 @@ class ResearchGraph:
             return False
         return True
 
+    def _run_with_retry(self, node_name: str, policy, operation):
+        """
+        以重试方式执行一个操作。
+
+        Args:
+            node_name: 节点名称（如 "searching"）
+            policy: RetryPolicy 实例，决定是否重试和退避时间
+            operation: 无参可调用对象，执行操作的具体逻辑
+
+        Returns:
+            operation 的返回值
+
+        Raises:
+            最后一次异常（重试耗尽或不可重试时抛出原异常）
+        """
+        import time as _time
+        last_exc = None
+        for _attempt in range(1, 10):  # 循环由 policy.should_retry 控制退出
+            try:
+                return operation()
+            except Exception as _e:
+                last_exc = _e
+                if policy.should_retry(node_name, _e, _attempt):
+                    _delay = policy.get_delay(_attempt)
+                    logger.warning(
+                        f"{node_name} 节点失败 (attempt {_attempt}/{policy._node_config.get(node_name, policy.max_retries)}): {_e}, "
+                        f"等待 {_delay:.1f}s 后重试"
+                    )
+                    _time.sleep(_delay)
+                else:
+                    break
+        raise last_exc  # 重试耗尽或不可重试，由调用方处理标记失败
+        # 重试耗尽或不可重试 → 标记失败并抛异常
+        logger.error(f"{node_name} 节点最终失败 (共尝试 {_attempt} 次): {last_exc}")
+        self.rs.mark_node_failed(node_name)
+        self._save_checkpoint()
+        raise last_exc
+
+    # ==================== 后提取阶段公共入口 ====================
+
+    def continue_from_state(
+        self,
+        state: "ResearchState",
+        llm: "LLMProvider",
+        progress_callback: Optional[Callable] = None,
+        tracer: Optional["TraceCollector"] = None,
+    ) -> Dict[str, Any]:
+        """
+        从已有 ResearchState 继续执行（跳过 Planning/Searching/Fetching/Extracting）
+        Deep 模式在 Workers 完成后调用此方法进入公共后半段流程。
+        """
+        self.rs = state
+        for _n in ("planning", "searching", "fetching", "extracting"):
+            if _n not in self.rs.completed_nodes:
+                self.rs.completed_nodes.append(_n)
+        return self._run_post_harvest(llm, progress_callback, tracer)
+
+    # ──────────────────────────────────────────────
+    # 公共后半段（从 Synthesis 开始到 Complete）
+    # 与 execute() 中 #5 SYNTHESIS 至 #9 COMPLETE 完全一致
+    # 当前请先保持两处代码一致，后续会迁移 execute() 到此
+    # ──────────────────────────────────────────────
+
     def resume(self, task_id: str, llm: "LLMProvider",
                progress_callback: Optional[Callable] = None,
                tracer: Optional["TraceCollector"] = None) -> Dict[str, Any]:
@@ -299,7 +363,13 @@ class ResearchGraph:
                                    action="PLANNING", input=topic)
                 if progress_callback:
                     progress_callback("Planner", f"正在为「{topic}」制定研究计划...")
-                self.rs.questions = run_plan_node(topic, llm)
+
+                def _plan_op():
+                    return run_plan_node(topic, llm)
+
+                self.rs.questions = self._run_with_retry(
+                    N()[0].value, llm_policy, _plan_op
+                )
                 logger.info(f"规划完成: {len(self.rs.questions)} 个问题")
                 if tracer:
                     tracer.record(agent_name="ResearchGraph", stage="node_end",
@@ -318,29 +388,33 @@ class ResearchGraph:
         if self._should_run(N()[1].value):
             self._node_start(N()[1])
             try:
-                if tracer:
-                    tracer.record(agent_name="ResearchGraph", stage="node_start",
-                                   action="SEARCHING", input=f"{len(self.rs.questions)}个问题")
-                self.rs.sources = run_search_node(
-                    self.rs.questions,
-                    sources_per_question=self.policy.search_sources,
-                    use_real_search=True,
-                )
-                logger.info(f"搜索完成: {len(self.rs.sources)} 个来源")
-                if tracer:
-                    tracer.record(agent_name="ResearchGraph", stage="node_end",
-                                   action="SEARCHING", result=f"{len(self.rs.sources)}个来源")
-                if progress_callback:
-                    progress_callback(
-                        "SearchAgent",
-                        f"找到 {len(self.rs.sources)} 个来源，抓取正文...",
-                        extra_data={
-                            "sources": [
-                                {"id": s.id, "title": s.title, "snippet": s.snippet}
-                                for s in self.rs.sources
-                            ]
-                        },
+                def _search_op():
+                    if tracer:
+                        tracer.record(agent_name="ResearchGraph", stage="node_start",
+                                       action="SEARCHING", input=f"{len(self.rs.questions)}个问题")
+                    self.rs.sources = run_search_node(
+                        self.rs.questions,
+                        sources_per_question=self.policy.search_sources,
+                        use_real_search=True,
                     )
+                    logger.info(f"搜索完成: {len(self.rs.sources)} 个来源")
+                    if tracer:
+                        tracer.record(agent_name="ResearchGraph", stage="node_end",
+                                       action="SEARCHING", result=f"{len(self.rs.sources)}个来源")
+                    if progress_callback:
+                        progress_callback(
+                            "SearchAgent",
+                            f"找到 {len(self.rs.sources)} 个来源，抓取正文...",
+                            extra_data={
+                                "sources": [
+                                    {"id": s.id, "title": s.title, "snippet": s.snippet}
+                                    for s in self.rs.sources
+                                ]
+                            },
+                        )
+                    return self.rs.sources
+
+                self._run_with_retry(N()[1].value, searching_policy, _search_op)
             except Exception:
                 self.rs.mark_node_failed(N()[1].value)
                 self._save_checkpoint()
@@ -356,9 +430,35 @@ class ResearchGraph:
                 if tracer:
                     tracer.record(agent_name="ResearchGraph", stage="node_start",
                                    action="FETCHING", input=f"{len(self.rs.sources)}个来源")
-                self.rs.documents = run_fetch_node(
-                    self.rs.sources, max_pages=self.policy.search_sources
-                )
+
+                # 逐个对来源抓取，每页独立重试
+                _fetch_docs: List[Document] = []
+                _fetch_fail_count = 0
+                for _src in self.rs.sources[:self.policy.search_sources]:
+                    def _make_fetch_op(src):
+                        def _op():
+                            from ..nodes.fetch_node import _fetch_single
+                            return _fetch_single(src)
+                        return _op
+                    try:
+                        doc = self._run_with_retry(N()[2].value, fetching_policy,
+                                                    _make_fetch_op(_src))
+                        _fetch_docs.append(doc)
+                    except Exception as _fe:
+                        _fetch_fail_count += 1
+                        logger.warning(f"抓取失败 (跳过): {_src.url} — {_fe}")
+                        if progress_callback:
+                            progress_callback("System", f"抓取失败 (跳过): {_src.title or _src.url}")
+
+                self.rs.documents = _fetch_docs
+
+                # 全部失败 → 节点失败
+                if _fetch_fail_count >= len(self.rs.sources[:self.policy.search_sources]):
+                    raise RuntimeError(
+                        f"全部 {_fetch_fail_count}/{len(self.rs.sources[:self.policy.search_sources])} "
+                        f"个来源抓取失败"
+                    )
+
                 if tracer:
                     tracer.record(agent_name="ResearchGraph", stage="node_end",
                                    action="FETCHING", result=f"{len(self.rs.documents)}篇文档")
@@ -392,6 +492,34 @@ class ResearchGraph:
         else:
             logger.info(f"[恢复] 跳过已完成步骤: {N()[3].value}")
 
+        # ── 5-9. 委托给公共后半段 _run_post_harvest ──
+        return self._run_post_harvest(llm, progress_callback, tracer)
+
+    def _run_post_harvest(
+        self,
+        llm: "LLMProvider",
+        progress_callback: Optional[Callable] = None,
+        tracer: Optional["TraceCollector"] = None,
+    ) -> Dict[str, Any]:
+        """
+        公共后半段：Synthesis → Claim Verify → Coverage → Gap → Writing → Audit → Complete
+        """
+        import time as _time
+        _start_time = _time.time()
+        _audit_passed = True
+        _rewritten = 0
+        _audit_issues = []
+
+        from ..nodes.synthesis_node import run_synthesis_node
+        from ..nodes.claim_verification_node import run_claim_verification_node
+        from ..nodes.coverage_node import run_coverage_node
+        from ..nodes.gap_agent import run_evidence_gap_agent
+        from ..nodes.write_node import run_write_node
+
+        is_resume = bool(self.rs.completed_steps)
+        done = set(self.rs.completed_steps)
+        done_nodes = set(self.rs.completed_nodes)
+
         # ── 5. SYNTHESIS（所有模式都做，首次执行） ──
         if self._should_run("synthesis_initial"):
             self._step_start("synthesis_initial")
@@ -402,7 +530,13 @@ class ResearchGraph:
                                    action="SYNTHESIS", input=f"{len(self.rs.evidences)}条证据")
                 if progress_callback:
                     progress_callback("AnalystAgent", "综合分析所有证据...")
-                self.rs.claims = run_synthesis_node(self.rs, llm)
+
+                def _synth_op():
+                    return run_synthesis_node(self.rs, llm)
+
+                self.rs.claims = self._run_with_retry(
+                    State.SYNTHESIZING.value, llm_policy, _synth_op
+                )
                 logger.info(f"分析完成: {len(self.rs.claims)} 条核心结论")
                 if tracer:
                     tracer.record(agent_name="ResearchGraph", stage="node_end",
@@ -428,7 +562,42 @@ class ResearchGraph:
                                    input=f"验证{len(self.rs.claims)}条结论的证据支持")
                 if progress_callback:
                     progress_callback("AnalystAgent", "验证结论的证据支撑...")
-                verified = run_claim_verification_node(self.rs, llm)
+
+                def _cv_op():
+                    return run_claim_verification_node(self.rs, llm)
+
+                try:
+                    verified = self._run_with_retry("CLAIM_VERIFICATION", llm_policy, _cv_op)
+                except Exception as _cv_e:
+                    # 重试耗尽或不可重试 → 降级，不终止任务
+                    logger.error(f"Claim 验证彻底失败: {_cv_e}，进入降级模式")
+                    from ..nodes.claim_verification_node import ClaimStatus as _CS, VerifiedClaim
+                    verified = [
+                        VerifiedClaim(
+                            claim_index=i,
+                            status=_CS.UNVERIFIED,
+                            explanation="LLM验证失败，标记为未验证",
+                        )
+                        for i in range(len(self.rs.claims))
+                    ]
+                    self.rs.metadata = getattr(self.rs, "metadata", {}) or {}
+                    self.rs.metadata["claim_verify_degraded"] = True
+                    self.rs.metadata["claim_verify_error"] = str(_cv_e)
+                    if progress_callback:
+                        progress_callback("AnalystAgent", "结论验证降级：LLM 调用失败，所有结论标记为未验证")
+
+                # 写回 confidence（含降级路径：全部设为 0.0）
+                from ..nodes.claim_verification_node import ClaimStatus as _CS2
+                for vc in verified:
+                    idx = vc.claim_index
+                    if 0 <= idx < len(self.rs.claims):
+                        if vc.status == _CS2.SUPPORTED:
+                            self.rs.claims[idx].confidence = 1.0
+                        elif vc.status == _CS2.PARTIALLY_SUPPORTED:
+                            self.rs.claims[idx].confidence = 0.5
+                        else:
+                            self.rs.claims[idx].confidence = 0.0
+
                 unsupported = [v for v in verified if v.status.value == "unsupported"]
                 if unsupported:
                     logger.warning(f"发现 {len(unsupported)} 条无证据支持的结论")
@@ -518,7 +687,13 @@ class ResearchGraph:
                                                input=f"补搜后重新分析")
                             if progress_callback:
                                 progress_callback("AnalystAgent", "重新综合分析...")
-                            self.rs.claims = run_synthesis_node(self.rs, llm)
+
+                            def _re_synth_op():
+                                return run_synthesis_node(self.rs, llm)
+
+                            self.rs.claims = self._run_with_retry(
+                                State.SYNTHESIZING.value, llm_policy, _re_synth_op
+                            )
                             # 补搜后重新验证 Claim
                             if self.rs.claims:
                                 run_claim_verification_node(self.rs, llm)
@@ -552,7 +727,13 @@ class ResearchGraph:
                 if progress_callback:
                     progress_callback("WriterAgent", "撰写报告...")
                 self.state = State.WRITING
-                self.rs.report = run_write_node(self.rs, llm, mode=self.mode.value)
+
+                def _write_op():
+                    return run_write_node(self.rs, llm, mode=self.mode.value)
+
+                self.rs.report = self._run_with_retry(
+                    State.WRITING.value, llm_policy, _write_op
+                )
                 logger.info(f"写作完成: {len(self.rs.report)} 字")
                 if tracer:
                     tracer.record(agent_name="ResearchGraph", stage="node_end",
@@ -579,10 +760,29 @@ class ResearchGraph:
                     if progress_callback:
                         progress_callback("System", "审计报告质量...")
 
-                    audit = run_audit_node(self.rs, llm)
-                    _audit_passed = audit.passed
-                    _audit_issues = audit.issues[:5]
-                    self.rs.audit_passed = audit.passed
+                    def _audit_op():
+                        return run_audit_node(self.rs, llm)
+
+                    try:
+                        audit = self._run_with_retry(State.AUDITING.value, llm_policy, _audit_op)
+                        _audit_passed = audit.passed
+                        _audit_issues = audit.issues[:5]
+                        self.rs.audit_passed = audit.passed
+                    except Exception as _audit_e:
+                        # 重试耗尽或不可重试 → 降级，不终止任务
+                        logger.error(f"报告审计彻底失败: {_audit_e}，进入降级模式")
+                        from ..nodes.audit_node import AuditResult
+                        audit = AuditResult(passed=False, issues=[],
+                                            suggestions="【质量审核未完成】LLM调用失败，未完成审核")
+                        _audit_passed = False
+                        _audit_issues = ["质量审核未完成：LLM调用失败"]
+                        self.rs.audit_passed = False
+                        self.rs.metadata = getattr(self.rs, "metadata", {}) or {}
+                        self.rs.metadata["audit_degraded"] = True
+                        self.rs.metadata["audit_error"] = str(_audit_e)
+                        if progress_callback:
+                            progress_callback("System",
+                                "⚠️ 质量审核未完成（LLM 调用失败），当前报告已保留")
                 except Exception:
                     self.rs.mark_node_failed(State.AUDITING.value)
                     self._save_checkpoint()
@@ -595,15 +795,23 @@ class ResearchGraph:
                 _audit_passed = True
                 _audit_issues = []
 
+            # 审计降级时（audit_degraded）不触发 Rewrite
+            _audit_degraded = bool(
+                getattr(self.rs, "metadata", {}).get("audit_degraded")
+            )
+
             need_rewrite = (
-                audit is not None and not audit.passed
+                not _audit_degraded
+                and audit is not None and not audit.passed
                 and self.policy.max_rewrite_rounds > 0 and audit.suggestions
             )
 
             # 恢复模式：audit_initial 已完成但 REWRITE 未完成 → 根据 audit_passed 判断是否需要重写
             if not need_rewrite and is_resume and "audit_initial" in set(self.rs.completed_steps) and "REWRITE" not in set(self.rs.completed_nodes):
-                # audit_initial 当时的结果已保存在 audit_passed 中
-                if not self.rs.audit_passed:
+                # 如果原始审计已降级，不触发 Rewrite
+                if getattr(self.rs, "metadata", {}).get("audit_degraded"):
+                    need_rewrite = False
+                elif not self.rs.audit_passed:
                     need_rewrite = True
                     audit = __import__("researchforge.nodes.audit_node", fromlist=["AuditResult"]).AuditResult(
                         passed=False, issues=["恢复：审计未完成"], suggestions="请根据审计意见修改报告"
@@ -625,9 +833,11 @@ class ResearchGraph:
                 self.rs.mark_node_start("REWRITE")
                 self._save_checkpoint()
                 try:
-                    self.rs.report = run_write_node(
-                        self.rs, llm, extra_instructions=audit.suggestions, mode=self.mode.value
-                    )
+                    def _rewrite_op():
+                        return run_write_node(
+                            self.rs, llm, extra_instructions=audit.suggestions, mode=self.mode.value
+                        )
+                    self.rs.report = self._run_with_retry("REWRITE", llm_policy, _rewrite_op)
                     logger.info(f"重写完成: {len(self.rs.report)} 字")
                 except Exception:
                     self.rs.mark_node_failed("REWRITE")
@@ -670,7 +880,7 @@ class ResearchGraph:
 
         # 统计 Claim 验证结果
         supported = sum(1 for c in self.rs.claims if c.confidence >= 0.9)
-        unsupported = sum(1 for c in self.rs.claims if c.confidence == 0.0)
+        unchecked = sum(1 for c in self.rs.claims if c.confidence == 0.0)
 
         return {
             "topic": self.rs.topic,
@@ -686,7 +896,7 @@ class ResearchGraph:
             "claim_verification": {
                 "total": len(self.rs.claims),
                 "supported": supported,
-                "unsupported": unsupported,
+                "unverified": unchecked,
             },
             "audit": {
                 "passed": _audit_passed,

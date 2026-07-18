@@ -22,6 +22,7 @@ class ClaimStatus(str, Enum):
     SUPPORTED = "supported"             # 证据充分支持结论
     PARTIALLY_SUPPORTED = "partially"   # 部分支持，有推断成分
     UNSUPPORTED = "unsupported"         # 证据不支持或过度推断
+    UNVERIFIED = "unverified"           # LLM 调用失败，未完成验证
 
 
 @dataclass
@@ -92,6 +93,7 @@ def run_claim_verification_node(
             elif vc.status == ClaimStatus.PARTIALLY_SUPPORTED:
                 state.claims[vc.claim_index].confidence = 0.5
             else:
+                # UNSUPPORTED / UNVERIFIED 均设为 0.0
                 state.claims[vc.claim_index].confidence = 0.0
 
     return batch_results
@@ -154,12 +156,8 @@ Claim2: unsupported | 证据未提及该结论的任何信息"""
     try:
         result = llm.generate(prompt)
     except Exception:
-        # LLM 失败，默认全部通过
-        return [
-            VerifiedClaim(claim_index=i, status=ClaimStatus.SUPPORTED,
-                          explanation="LLM调用失败，默认通过")
-            for i in range(len(claims))
-        ]
+        # 不吞噬异常，由调用方（ResearchGraph）决定重试还是降级
+        raise
 
     # 解析结果
     verified = {}

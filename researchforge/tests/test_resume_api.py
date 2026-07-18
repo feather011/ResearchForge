@@ -59,9 +59,10 @@ def test_resume_completed_returns_400():
         app_mod.checkpoint_store = original
 
 
-def test_resume_deep_returns_400():
-    """Deep 模式 → 400"""
+def test_resume_deep_now_returns_200():
+    """Deep 模式现已支持恢复 → 返回 200（后台线程运行）"""
     from researchforge.service.app import resume_research
+    from fastapi import HTTPException
     import asyncio
 
     store = CheckpointStore()
@@ -75,12 +76,13 @@ def test_resume_deep_returns_400():
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc:
-            loop.run_until_complete(resume_research("_deep_only"))
-        loop.close()
-        assert exc.value.status_code == 400
-        assert "Deep" in exc.value.detail
+        try:
+            result = loop.run_until_complete(resume_research("_deep_only"))
+            loop.close()
+            assert result is not None
+            assert result["state"] == "pending"
+        except HTTPException:
+            pytest.fail("Deep 模式恢复不应抛出 HTTPException")
     finally:
         app_mod.checkpoint_store = original
 

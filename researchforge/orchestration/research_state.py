@@ -64,6 +64,31 @@ class Conflict:
     description: str = ""
 
 
+@dataclass
+class DeepWorkerState:
+    """Deep 模式 Worker 执行状态（线程安全，不可变写入）"""
+    worker_id: str
+    task: str
+    status: str = "pending"  # pending | running | completed | failed
+    sources: List[Source] = field(default_factory=list)
+    documents: List[Document] = field(default_factory=list)
+    evidences: List[Evidence] = field(default_factory=list)
+    error: str = ""
+
+
+def _reconstruct_deep_worker(dw: dict) -> DeepWorkerState:
+    """从 dict 重建 DeepWorkerState（含嵌套 Source/Document/Evidence）"""
+    return DeepWorkerState(
+        worker_id=dw.get("worker_id", ""),
+        task=dw.get("task", ""),
+        status=dw.get("status", "pending"),
+        sources=[Source(**s) for s in dw.get("sources", []) if isinstance(s, dict)],
+        documents=[Document(**d) for d in dw.get("documents", []) if isinstance(d, dict)],
+        evidences=[Evidence(**e) for e in dw.get("evidences", []) if isinstance(e, dict)],
+        error=dw.get("error", ""),
+    )
+
+
 # ─── 嵌套 dataclass 类型映射（用于反序列化） ───
 _NESTED_TYPES = {
     "sources": Source,
@@ -130,6 +155,10 @@ class ResearchState:
     completed_steps: List[str] = field(default_factory=list)  # 已完成的步骤名列表
     audit_passed: bool = True               # 最近一次 audit 是否通过（恢复时用于判断是否需要 rewrite）
 
+    # ── Deep 模式字段（Milestone 3） ──
+    deep_workers: List[DeepWorkerState] = field(default_factory=list)
+    deep_workers_completed: bool = False
+
     # ==================== 序列化 ====================
 
     def to_dict(self) -> Dict[str, Any]:
@@ -177,6 +206,14 @@ class ResearchState:
                 d[field_name] = _reconstruct_list(val, cls_type)
             else:
                 d[field_name] = []
+
+        # ── deep_workers: 特殊处理（内部还有嵌套） ──
+        dw_val = d.pop("deep_workers", None)
+        if isinstance(dw_val, list):
+            d["deep_workers"] = [_reconstruct_deep_worker(item) if isinstance(item, dict) else item
+                                 for item in dw_val]
+        else:
+            d["deep_workers"] = []
 
         return cls(**d)
 

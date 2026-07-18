@@ -478,9 +478,6 @@ async def resume_research(research_id: str):
     if state.status == "completed":
         raise HTTPException(400, detail=f"研究已完成，无需恢复")
 
-    if state.mode == ResearchMode.DEEP:
-        raise HTTPException(400, detail="Deep 模式暂不支持断点恢复")
-
     # 初始化或更新内存记录
     research_tasks[research_id] = {
         "topic": state.topic,
