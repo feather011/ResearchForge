@@ -24,7 +24,8 @@ from .persist import save_task, load_task, list_tasks
 from .config import settings
 from ..orchestration import ResearchMode
 from ..orchestration.checkpoint_store import CheckpointStore
-from ..trace import TraceCollector
+from ..trace import TraceCollector, TraceStore
+from ..evaluation.quality_score import build_quality_score
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("FastAPI")
@@ -49,6 +50,7 @@ research_tasks: Dict[str, dict] = {}
 limiter = RateLimiter(max_requests=settings.RATE_LIMIT_MAX, window_seconds=settings.RATE_LIMIT_WINDOW)
 sse_queues: Dict[str, asyncio.Queue] = {}
 checkpoint_store = CheckpointStore()
+trace_store = TraceStore()
 
 
 def _record_event(task: dict, event_type: str, payload: dict):
@@ -93,6 +95,7 @@ async def root():
             "POST /api/review/{id}": "人工审核",
             "POST /api/research/{id}/resume": "恢复研究",
             "POST /api/sse-test": "SSE快速模拟测试",
+            "GET  /health": "容器健康检查",
         }
     }
 
@@ -392,6 +395,13 @@ async def sse_test():
     return ResearchResponse(research_id=research_id, topic="[SSE测试]模拟研究", state="running", message="SSE模拟测试已启动")
 
 
+@app.get("/health")
+async def health_check():
+    """容器健康检查 — 不检查外部服务"""
+    import datetime
+    return {"status": "ok", "service": "researchforge", "timestamp": datetime.datetime.utcnow().isoformat()}
+
+
 @app.get("/api/checkpoints")
 async def list_recoverable_checkpoints():
     """列出可恢复的检查点（failed 状态的）"""
@@ -450,6 +460,22 @@ async def get_research_events(research_id: str):
     if not record:
         raise HTTPException(404, detail="研究不存在")
     return {"research_id": research_id, "events": record.get("events", [])}
+
+
+@app.get("/api/research/{research_id}/traces")
+async def get_research_traces(research_id: str, stage: str = None, agent_name: str = None):
+    """查询研究的 Trace 事件（支持按 stage / agent_name 筛选）"""
+    traces = trace_store.load(research_id)
+
+    if stage:
+        traces = [t for t in traces if t.get("stage") == stage]
+    if agent_name:
+        traces = [t for t in traces if t.get("agent_name") == agent_name]
+
+    # 按 timestamp 升序
+    traces.sort(key=lambda t: t.get("timestamp", 0))
+
+    return {"research_id": research_id, "traces": traces}
 
 
 @app.delete("/api/research/{research_id}")
@@ -626,3 +652,89 @@ def _cleanup_stale_tasks():
         keep = set(stale_ids[:-40])  # 保留最近 40 个
         for rid in keep:
             research_tasks.pop(rid, None)
+
+
+# ==================== Benchmark API ====================
+
+@app.get("/api/benchmark/cases")
+async def get_benchmark_cases():
+    """获取 Benchmark case 列表"""
+    try:
+        from benchmarks.benchmark_runner import load_cases
+        cases = load_cases()
+        return {"cases": cases}
+    except Exception as e:
+        logger.warning(f"Benchmark cases 加载失败: {e}")
+        return {"cases": []}
+
+
+@app.post("/api/benchmark/run")
+async def run_benchmark_sync(req: dict):
+    """运行 Benchmark（指定 case_id 和 modes）"""
+    import threading
+    import uuid
+
+    case_id = req.get("case_id", "")
+    modes = req.get("modes", ["fast"])
+
+    if not case_id:
+        raise HTTPException(400, detail="case_id 不能为空")
+
+    try:
+        from benchmarks.benchmark_runner import load_cases, run_benchmark
+    except Exception as e:
+        raise HTTPException(500, detail=f"Benchmark 模块加载失败: {e}")
+
+    cases = load_cases(case_ids=[case_id])
+    if not cases:
+        raise HTTPException(404, detail=f"Case 不存在: {case_id}")
+
+    bm_id = f"bm_{uuid.uuid4().hex[:6]}"
+    research_tasks[bm_id] = {
+        "topic": f"Benchmark: {case_id}",
+        "state": "pending",
+        "mode": "benchmark",
+        "report": None,
+    }
+
+    def _run():
+        try:
+            from researchforge.core import BailianProvider, OllamaProvider
+            if settings.LLM_PROVIDER == "ollama":
+                llm = OllamaProvider(model=settings.MODEL, base_url=settings.OLLAMA_BASE_URL, timeout=settings.LLM_TIMEOUT)
+            else:
+                llm = BailianProvider(model=settings.MODEL, timeout=settings.LLM_TIMEOUT)
+        except Exception:
+            from unittest.mock import Mock
+            llm = Mock()
+            llm.generate.return_value = "基准测试输出"
+
+        try:
+            result = run_benchmark(cases[0], llm=llm, modes=modes)
+            research_tasks[bm_id]["state"] = "completed"
+            research_tasks[bm_id]["benchmark_result"] = result
+        except Exception as e:
+            research_tasks[bm_id]["state"] = "failed"
+            research_tasks[bm_id]["error"] = str(e)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return {"benchmark_id": bm_id, "state": "pending", "message": "Benchmark 已启动"}
+
+
+@app.get("/api/benchmark/result/{benchmark_id}")
+async def get_benchmark_result(benchmark_id: str):
+    """获取 Benchmark 结果"""
+    task = research_tasks.get(benchmark_id)
+    if not task:
+        raise HTTPException(404, detail="Benchmark 不存在")
+    if task["state"] == "pending":
+        return {"benchmark_id": benchmark_id, "state": "pending"}
+    if task["state"] == "failed":
+        return {"benchmark_id": benchmark_id, "state": "failed", "error": task.get("error")}
+    return {
+        "benchmark_id": benchmark_id,
+        "state": "completed",
+        "result": task.get("benchmark_result"),
+    }

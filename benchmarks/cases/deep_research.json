@@ -1,0 +1,7 @@
+{
+  "id": "deep_research",
+  "topic": "强化学习与 RLHF 的技术对比",
+  "description": "Deep 模式专用 — 多 Worker 并行分析",
+  "expected_questions": 3,
+  "modes": ["deep", "standard"]
+}

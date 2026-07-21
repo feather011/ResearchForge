@@ -2,7 +2,7 @@
 TraceCollector — 轻量 Agent Trace 可观测
 
 记录 Agent 执行过程中的 Thought/Action/Observation 和 Workflow 节点执行。
-每条事件通过回调推送到 SSE 和持久化，不阻塞主流程。
+每条事件通过回调推送到 SSE、写入 TraceStore 和保存内存，不阻塞主流程。
 
 数据结构:
   TraceEvent(timestamp, run_id, agent_name, stage,
@@ -13,7 +13,7 @@ TraceCollector — 轻量 Agent Trace 可观测
 import time
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional, Callable, TYPE_CHECKING
 
 
 @dataclass
@@ -58,10 +58,13 @@ class TraceCollector:
         self,
         run_id: str,
         callback: Optional[Callable[[TraceEvent], None]] = None,
+        store: Optional["TraceStore"] = None,
     ):
         self.run_id = run_id
         self.callback = callback
+        self._store = store
         self._events: list = []
+        self._start_times: Dict[str, float] = {}  # action → start_time
 
     def record(
         self,
@@ -75,7 +78,17 @@ class TraceCollector:
         result: str = "",
         duration_ms: float = 0.0,
     ) -> TraceEvent:
-        """记录一条 Trace 事件"""
+        """记录一条 Trace 事件（自动计算 node_start → node_end 耗时）"""
+        _now = time.time()
+
+        # 自动计时：node_start 记录开始时间，node_end 计算耗时
+        if stage == "node_start" and action:
+            self._start_times[action] = _now
+        elif stage == "node_end" and action:
+            started = self._start_times.pop(action, None)
+            if started is not None and duration_ms == 0.0:
+                duration_ms = round((_now - started) * 1000, 1)
+
         event = TraceEvent(
             timestamp=time.time(),
             run_id=self.run_id,
@@ -90,8 +103,17 @@ class TraceCollector:
             duration_ms=duration_ms,
         )
 
-        self._events.append(event.to_dict())
+        event_dict = event.to_dict()
+        self._events.append(event_dict)
 
+        # TraceStore 持久化（可选）
+        if self._store is not None:
+            try:
+                self._store.append(self.run_id, event_dict)
+            except Exception:
+                pass  # 存储失败不阻断主流程
+
+        # SSE 回调（可选）
         if self.callback:
             try:
                 self.callback(event)

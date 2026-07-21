@@ -13,7 +13,7 @@ ClaimVerificationNode — Claim 语义验证节点
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Tuple
 from ..orchestration.research_state import ResearchState, Claim
 from ..core.react_engine import LLMProvider
 
@@ -82,7 +82,17 @@ def run_claim_verification_node(
         ))
 
     # 一次 LLM 调用批量验证所有 Claim
-    batch_results = _batch_verify(claims=state.claims, evidence_map=evidence_map, llm=llm)
+    batch_results, unresolved_ids = _batch_verify(claims=state.claims, evidence_map=evidence_map, llm=llm)
+
+    # 记录未解析的 Claim 到 metadata
+    if unresolved_ids:
+        meta = getattr(state, "metadata", None)
+        if meta is None:
+            meta = {}
+            state.metadata = meta
+        meta.setdefault("claim_verify_unresolved", [])
+        meta["claim_verify_unresolved"].extend(unresolved_ids)
+        meta["claim_verify_unresolved_count"] = len(unresolved_ids)
 
     # 合并结果
     for vc in batch_results:
@@ -103,10 +113,10 @@ def _batch_verify(
     claims: List[Claim],
     evidence_map: dict,
     llm: LLMProvider,
-) -> List[VerifiedClaim]:
+) -> Tuple[List[VerifiedClaim], List[int]]:
     """一次 LLM 调用，批量验证所有 Claim"""
     if not claims:
-        return []
+        return [], []
 
     # 构造带编号的 evidence 参考表
     all_ev_texts = []
@@ -207,12 +217,14 @@ Claim2: unsupported | 证据未提及该结论的任何信息"""
             explanation=explanation[:200],
         )
 
-    # 按原顺序返回，未解析的默认 supported
-    return [
+    # 按原顺序返回，未解析的默认 UNVERIFIED
+    unresolved_ids = [i for i in range(len(claims)) if i not in verified]
+    result_list = [
         verified.get(i, VerifiedClaim(
             claim_index=i,
-            status=ClaimStatus.SUPPORTED,
-            explanation="未能解析验证结果，默认通过",
+            status=ClaimStatus.UNVERIFIED,
+            explanation="LLM返回中缺失该Claim的验证结果，标记为未验证",
         ))
         for i in range(len(claims))
     ]
+    return result_list, unresolved_ids

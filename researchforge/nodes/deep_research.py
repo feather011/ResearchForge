@@ -51,55 +51,72 @@ class ResearchWorker:
         """执行完整子任务：Plan → Search → Fetch → Extract → Analyze"""
         logger.info(f"Worker {self.worker_id} 开始: {self.task}")
 
-        # ── 1. Plan ──
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="think", action="plan", input=self.task)
-        self.sub_plan = self._make_sub_plan()
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_end", action="plan",
-                                result=f"{len(self.sub_plan)}个子任务")
+        _current_action = ""
 
-        # ── 2. Search ──
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_start", action="search",
-                                input=f"{len(self.sub_plan)}个方向")
-        self.sources = run_search_node(self.sub_plan, sources_per_question=3)
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_end", action="search",
-                                result=f"{len(self.sources)}个来源")
-        if not self.sources:
-            return self._result()
+        try:
+            # ── 1. Plan ──
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="think", action="plan", input=self.task)
+            self.sub_plan = self._make_sub_plan()
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_end", action="plan",
+                                    result=f"{len(self.sub_plan)}个子任务")
 
-        # ── 3. Fetch ──
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_start", action="fetch",
-                                input=f"{len(self.sources)}个来源")
-        self.documents = run_fetch_node(self.sources, max_pages=3)
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_end", action="fetch",
-                                result=f"{len(self.documents)}篇文档")
+            # ── 2. Search（用 worker_id 前缀避免并发 Worker 计时互覆盖）──
+            _current_action = f"{self.worker_id}_search"
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_start", action=_current_action,
+                                    input=f"{len(self.sub_plan)}个方向")
+            self.sources = run_search_node(self.sub_plan, sources_per_question=3)
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_end", action=_current_action,
+                                    result=f"{len(self.sources)}个来源")
+            if not self.sources:
+                return self._result()
 
-        # ── 4. Extract ──
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_start", action="extract",
-                                input=f"{len(self.documents)}篇文档")
-        self.evidences = run_extract_node(self.documents, self.sub_plan)
-        if self.tracer:
-            self.tracer.record(agent_name=f"Worker{self.worker_id}",
-                                stage="node_end", action="extract",
-                                result=f"{len(self.evidences)}条证据")
+            # ── 3. Fetch ──
+            _current_action = f"{self.worker_id}_fetch"
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_start", action=_current_action,
+                                    input=f"{len(self.sources)}个来源")
+            self.documents = run_fetch_node(self.sources, max_pages=3)
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_end", action=_current_action,
+                                    result=f"{len(self.documents)}篇文档")
 
-        # ── 5. Analyze ──
-        self.claims = self._analyze()
+            # ── 4. Extract ──
+            _current_action = f"{self.worker_id}_extract"
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_start", action=_current_action,
+                                    input=f"{len(self.documents)}篇文档")
+            self.evidences = run_extract_node(self.documents, self.sub_plan)
+            if self.tracer:
+                self.tracer.record(agent_name=f"Worker{self.worker_id}",
+                                    stage="node_end", action=_current_action,
+                                    result=f"{len(self.evidences)}条证据")
 
-        logger.info(f"Worker {self.worker_id} 完成: {len(self.sources)}来源, {len(self.evidences)}证据")
+            # ── 5. Analyze ──
+            self.claims = self._analyze()
+
+            logger.info(f"Worker {self.worker_id} 完成: {len(self.sources)}来源, {len(self.evidences)}证据")
+        except Exception as _e:
+            if self.tracer:
+                self.tracer.record(
+                    agent_name=f"Worker{self.worker_id}",
+                    stage="node_end",
+                    action=_current_action,
+                    observation=f"status=failed, error={_e}",
+                    duration_ms=0.0,
+                )
+            raise
+
         return self._result()
 
     def _make_sub_plan(self) -> List[str]:
@@ -164,14 +181,23 @@ class LeadResearcher:
         tasks = []
         for line in result.split("\n"):
             line = line.strip()
-            if line and (line[0].isdigit() or line.startswith("-")):
-                task = line.split(".", 1)[-1].strip()
-                task = task.lstrip("-").strip()
-                if task:
+            if not line:
+                continue
+            # 去掉编号前缀（"1. "、"2、"，"- " 等）
+            task = line
+            for sep in [". ", "、", ") ", "）", ".", ")", "）"]:
+                if sep in task[:5] and (task[0].isdigit() or task[0] in "-•*"):
+                    task = task.split(sep, 1)[-1]
+                    break
+            task = task.lstrip("-•* ").strip()
+            # 过滤纯标点或空串
+            if task and len(task) > 1 and not all(c in "，。、！？:：" for c in task):
+                if not task.startswith("你") and not task.startswith("请"):
                     tasks.append(task)
         tasks = tasks[:num_workers]
         if not tasks:
-            tasks = [f"文艺复兴 起源 背景", f"文艺复兴 代表人物", f"文艺复兴 历史影响"]
+            # 回退：用主题本身作为搜索词
+            tasks = [topic[:60]] if topic else ["默认研究主题"]
         return tasks
 
     def merge_results(self, worker_results: List[dict]) -> dict:

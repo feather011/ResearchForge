@@ -1,188 +1,350 @@
-# ResearchForge — 智能研究工坊
+# ResearchForge — Multi-Mode LLM Research Agent
 
-> 一个基于 LLM Agent 的自动化研究系统。给定一个主题，自动完成搜索、分析、写作、审计全流程。
->
-> 面向 AI Agent Engineer 求职展示。
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)]()
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green)]()
+[![License](https://img.shields.io/badge/license-MIT-yellow)]()
 
----
+**ResearchForge** is an LLM-powered research agent that autonomously plans, searches, extracts evidence, synthesizes findings, writes reports, and evaluates quality — across three operating modes with checkpoint/resume, retry, observability, and benchmarking built in.
 
-## Problem
-
-传统 LLM 有两个局限：
-
-1. **单次对话无法完成长流程研究任务** — Plan → Search → Fetch → Extract → Synthesis → Write → Audit
-2. **没有质量保证机制** — LLM 直接生成的内容不可验证
-
-ResearchForge 把研究拆成 7 个阶段、每个阶段用专用 Agent 执行、末尾加审计闭环，让输出可追溯、可验证。
+> 中文简介：ResearchForge 是一个多模式 LLM 研究 Agent 系统，支持 Fast / Standard / Deep 三种运行模式，自动完成从规划、搜索、证据提取到报告写作和审计的完整研究流程。内置检查点、重试、可观测性和基准测试框架。
 
 ---
 
-## Agent Architecture
+## Features
 
-```
-用户输入
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    ResearchGraph Workflow Engine              │
-│                                                              │
-│  Plan → Search → Fetch → Extract → Synthesis → Write → Audit │
-│                                    ↘            ↙           │
-│                               ClaimVerification              │
-│                                    ↘            ↙           │
-│                              Coverage → GapAgent             │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-  Agent Capabilities
-    │
-    ├── Planner            LLM 将主题拆解为可搜索的子问题
-    ├── ReActAgent         GapAgent：Think → Act → Observe 循环补搜
-    ├── GapSearchTool      Bing/Google/DuckDuckGo 三源搜索
-    ├── GapFetchTool       网页抓取
-    ├── GapEvidenceSearchTool  证据检索
-    ├── ClaimVerification  LLM 验证每条结论是否被证据支持
-    ├── ReportAudit        LLM 检查覆盖、引用、幻觉
-    └── Rewrite            审计失败 → 带建议重写
-```
+### Agent Runtime
+- **Three modes**: Fast (lightweight), Standard (full pipeline), Deep (multi-worker parallel)
+- **State machine**: ResearchGraph drives 13-state flow with mode-specific paths
+- **ResearchState**: Single data object carries all artifacts through the pipeline
 
-### 三种模式
+### Reliability
+- **Checkpoint / Resume**: Atomic state persistence per task; recover failed or interrupted runs
+- **RetryPolicy**: White-list based retry with exponential backoff, per-node configuration
+- **Graceful Degradation**: Claim verification and audit fall back to degraded mode when LLM fails — research continues without hard failure
 
-| 模式 | 流程 | 适用场景 |
-|------|------|---------|
-| **Fast** | Plan → Search → Fetch → Extract → Synthesis → Write | 快速概览 |
-| **Standard** | 上面 + Coverage → GapAgent → Audit → Rewrite | 标准研究 |
-| **Deep** | 3 Worker 并行（每个独立 Plan → 搜索 → 分析）→ Merge Agent → Coverage → GapAgent → ClaimVerification → Audit → Rewrite | 深度研究 |
+### Deep Research
+- **Parallel Workers**: LeadResearcher splits topic → multiple ResearchWorker instances run search/fetch/extract concurrently
+- **Worker-Level Resume**: Only failed/running workers re-execute on resume; completed workers restored from checkpoint
+- **Conflict Analysis**: Cross-worker evidence conflicts detected after merge
 
-### Deep 模式 Multi-Agent
+### Observability
+- **TraceCollector**: Every node_start/node_end, retry, degradation, and resume event recorded with timing
+- **Persistent Trace**: JSONL-backed TraceStore, thread-safe concurrent writes
+- **Trace API**: `GET /api/research/{id}/traces` with stage/agent filtering, timestamp ordering
+- **Timeline UI**: Modal popup shows all trace events by agent group with visual stage badges
 
-```
-LeadResearcher Agent
-    │
-    ├── Worker 1: 独立 Plan → Search → Fetch → Extract → Analyze
-    ├── Worker 2: 独立 Plan → Search → Fetch → Extract → Analyze
-    └── Worker 3: 独立 Plan → Search → Fetch → Extract → Analyze
-    │
-    ▼
-Merge Agent（LLM 语义去重 + 冲突检测）
-    │
-    ▼
-Coverage → GapAgent → ClaimVerification → Write → Audit
-```
-
-每个 Worker 是独立 ResearchAgent：拥有独立子任务规划、独立搜索/抓取/提取、独立 Analyzer、独立 Trace 记录。
+### Evaluation
+- **Claim Metrics**: Distribution of supported / partially / unsupported / unverified claims
+- **Citation Metrics**: Report citation marks validated against source IDs
+- **Coverage Metrics**: Per-question evidence coverage (Standard/Deep modes)
+- **Execution Metrics**: Per-node duration, retry/degraded/resume counts, slowest node
+- **Quality Score**: Weighted composite score with A–F grade
+- **Benchmark Framework**: Reusable case definitions + runner + comparison report across modes
 
 ---
 
-## Data Flow
+## Three Operating Modes
 
-```
-Source(id="来源1", url="...")
-  → Document(source_id="来源1", content="...")
-    → Evidence(id="ev_0", source_id="来源1", text="...")
-      → Claim(text="RLHF 依赖人类反馈", evidence_ids=["ev_0"], confidence=1.0)
-        → Report("...RLHF依赖人类反馈[来源1]...")
+| Mode     | Characteristics                          | Best For                          |
+| -------- | ---------------------------------------- | --------------------------------- |
+| Fast     | Low latency, lightweight, no audit       | Quick topic overview              |
+| Standard | Full pipeline with coverage + audit      | Structured reports                |
+| Deep     | Multi-worker parallel, conflict analysis | Complex, multi-angle topics       |
 
-每条结论可追溯到具体证据片段和原始搜索来源。
-```
+Fast skips evaluating → gap_searching → auditing → human_review. Standard runs the full pipeline with one gap-search round. Deep adds parallel workers, conflict detection, and up to two gap-search rounds.
 
 ---
 
-## Quality Loop
+## System Architecture
 
-```
-Write
-  │
-  ▼
-ReportAudit
-  │
-  ├── 检查1: 研究问题是否被报告覆盖（关键词匹配）
-  ├── 检查2: 引用 [来源X] 是否对应真实来源
-  ├── 检查3: LLM 检测无依据内容、结构完整性
-  │
-  ├── 全部通过 → Complete
-  │
-  └── 发现问题 + 有修改建议 → Rewrite → 重新 Audit
-```
+```mermaid
+flowchart LR
+    User[User / API] --> RS[ResearchService]
+    RS --> RG[ResearchGraph]
+    RS --> DW[Deep Workers]
 
----
+    RG --> Plan[Plan Node]
+    RG --> Search[Search Node]
+    RG --> Fetch[Fetch Node]
+    RG --> Extract[Extract Node]
+    RG --> Synthesize[Synthesis]
+    RG --> Verify[Claim Verify]
+    RG --> Coverage[Coverage]
+    RG --> Gap[Gap Agent]
+    RG --> Write[Write Node]
+    RG --> Audit[Audit Node]
+    RG --> Complete[Complete]
 
-## Technical Details
+    subgraph CrossCutting[Cross-Cutting]
+        CP[Checkpoint Store]
+        RT[Retry Policy]
+        TR[Trace Collector]
+        RS2[Resume]
+        BM[Benchmark]
+    end
 
-```
-技术栈:
-  Python 3.14+
-  FastAPI + SSE 实时推送
-  Ollama / DashScope (OpenAI-compatible API)
-  Google / Bing / DuckDuckGo 搜索
-
-项目结构:
-  researchforge/
-    ├── core/              ReAct引擎 + LLM Provider
-    ├── trace/             Agent Trace 可观测
-    ├── nodes/             8 个研究节点
-    ├── orchestration/     状态机 + 数据中心 + 模式策略
-    ├── service/           FastAPI + 前端
-    ├── tools/             搜索/抓取工具
-    ├── research_service.py  统一入口
-    └── evals/             自动化评测
+    RG -.-> CP
+    RG -.-> RT
+    RG -.-> TR
+    RG -.-> RS2
 ```
 
----
+### Execution Flows
 
-## Evaluation
-
-10 个 AI 研究主题 × 3 种模式的自动化评测：
-
+**Fast / Standard** — single-thread state machine:
 ```
-                  Fast        Standard    Deep
-耗时              30-60s      60-120s     120-180s
-来源数            3-4          5-8          8-15
-证据数            3-4          6-12        10-20
-结论数            3-4          3-5          4-6
-结论可信率        60-80%       60-80%       60-80%
-质量审计通过率    N/A          ~70%         ~80%
+Plan → Search → Fetch → Extract → (Evaluate → Gap?) → Synthesize → Write → (Audit → Rewrite?) → Complete
 ```
 
-运行 `python evals/runner.py` 在本机复现。
+**Deep** — multi-worker parallel:
+```
+LeadResearcher.make_plan()
+    │
+    ├─ Worker[W1] ── Search/Fetch/Extract ──┐
+    ├─ Worker[W2] ── Search/Fetch/Extract ──┤── Merge ── Conflicts ── post-harvest pipeline ── Complete
+    ├─ Worker[W3] ── Search/Fetch/Extract ──┘
+    └─ ... (up to 5)
+```
+
+**Failure → Retry → Checkpoint → Resume**:
+```
+Node fails → RetryPolicy.should_retry? → yes → backoff → retry
+                                       → no  → mark_node_failed → save checkpoint → raise
+Resume → load checkpoint → _should_run() skips completed nodes → continue from first incomplete node
+```
+
+**Deep Worker Partial Failure → Resume**:
+```
+Worker fails → checkpoint saved (status=failed)
+Resume → completed workers restored → only failed workers re-execute
+```
 
 ---
 
 ## Quick Start
 
+### Prerequisites
+
+- Python 3.11+
+- (Optional) Ollama for local LLM inference
+
+### Installation
+
 ```bash
-# 1. 确保 Ollama 运行
-ollama pull qwen3.5:9b
+# Clone
+git clone https://github.com/yourusername/researchforge.git
+cd researchforge
 
-# 2. 启动服务
-cd ai_research_workshop
-python -m uvicorn researchforge.service.app:app --port 8002 --reload
+# Virtual environment
+# Windows:
+python -m venv .venv
+.venv\Scripts\activate
 
-# 3. 打开浏览器
-# http://localhost:8002
+# Linux / macOS:
+python -m venv .venv
+source .venv/bin/activate
+
+# Install
+pip install -r requirements.txt
+```
+
+### Configuration
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to set your LLM provider:
+
+| Variable             | Required      | Description                                      |
+| -------------------- | ------------- | ------------------------------------------------ |
+| `DASHSCOPE_API_KEY`  | Yes (Bailian) | Alibaba Cloud Bailian (DashScope) API key        |
+| `LLM_PROVIDER`       | Yes           | `bailian` or `ollama`                            |
+| `RESEARCHFORGE_MODEL`| Yes           | Model name (e.g. `kimi-k2.6`, `qwen3.5:9b`)     |
+| `OLLAMA_BASE_URL`    | Ollama only   | Ollama server URL (default: `http://localhost:11434`) |
+| `LLM_TIMEOUT`        | No            | LLM request timeout (default: 600s)              |
+| `PORT`               | No            | Server port (default: 8002)                      |
+
+### Start Server
+
+#### Option A: Docker (Recommended)
+
+```bash
+# Build and start
+docker compose up --build
+
+# Or run in background
+docker compose up -d
+
+# View logs
+docker compose logs -f
+```
+
+#### Option B: Python directly
+
+```bash
+python -m uvicorn researchforge.service.app:app --host 0.0.0.0 --port 8002
+```
+
+Open **http://localhost:8002/** in your browser.
+
+> No LLM? Run the mock demo or click **SSE Test** in the UI.
+
+### Quick Demo (Docker)
+
+```bash
+# Run all three modes with mock data
+docker compose run --rm researchforge python demo/scripts/run_demo.py --all --mock
+
+# Run a single case
+docker compose run --rm researchforge python demo/scripts/run_demo.py --case fast_simple --mock
+
+# Run with fault injection (triggers retry)
+docker compose run --rm researchforge python demo/scripts/run_demo.py --case fast_simple --mock --inject-fault
+```
+
+Demo outputs are saved to `demo/outputs/` on the host.
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest researchforge/tests/ benchmarks/tests/ -v
+
+# 264 tests passed
+```
+
+| Area                | Tests |
+| ------------------- | ----- |
+| ResearchGraph       | 63    |
+| Checkpoint / Resume | 23    |
+| Retry / Degradation | 32    |
+| Deep Workers        | 13    |
+| Trace               | 27    |
+| Evaluation          | 51    |
+| Benchmark           | 18    |
+| Frontend            | 21    |
+| Service             | 6     |
+| Checkpoint Store    | 16    |
+| Research State      | 10    |
+
+---
+
+## Evaluation Stats
+
+Every completed research run produces a unified `stats` structure:
+
+```python
+"stats": {
+  "claims": { "total": 3, "supported": 2, "supported_rate": 0.6667, ... },
+  "citation": { "total_marks": 8, "valid_rate": 0.875, "source_utilization_rate": 0.6 },
+  "coverage": { "evaluated": true, "coverage_rate": 0.75, "gap_count": 1 },
+  "audit": { "passed": true, "rewritten": 0, "degraded": false, "issues_count": 0 },
+  "execution": { "duration_s": 45.2, "retry_count": 2, "slowest_node": "WRITING" },
+  "quality": { "quality_score": 87.5, "grade": "B", "breakdown": { ... } }
+}
+```
+
+> Quality Score is an internal heuristic-based scoring system designed for mode-to-mode and task-to-task comparison. It does not represent absolute factual accuracy.
+
+---
+
+## Benchmark
+
+Benchmark cases are stored as JSON in `benchmarks/cases/`. Each case defines a topic and the modes to run.
+
+```python
+from unittest.mock import Mock
+from benchmarks.benchmark_runner import load_cases, run_benchmark
+from benchmarks.benchmark_report import build_report, format_report_text
+
+# Load case and create mock LLM
+cases = load_cases(case_ids=["simple_research"])
+llm = Mock()
+llm.generate.return_value = "mock response"
+
+# Run
+result = run_benchmark(cases[0], llm)
+report = build_report(result)
+print(format_report_text(report))
+```
+
+Output:
+```
+=== Benchmark: simple_research ===
+  [FAST] ✅    20.5s | 来源: 3 | 质量: 87.5 (B)
+  [STANDARD] ✅ 45.2s | 来源: 5 | 质量: 92.0 (A)
+  [DEEP] ✅    90.8s | 来源: 12 | 质量: 95.0 (A)
+```
+
+> Benchmark tests use mocked LLMs — no external API calls during testing.
+
+---
+
+## API Overview
+
+| Method | Path                               | Description                      |
+| ------ | ---------------------------------- | -------------------------------- |
+| POST   | `/api/research`                    | Start a research task            |
+| GET    | `/api/status/{id}`                 | Get task status                  |
+| GET    | `/api/stream/{id}`                 | SSE event stream                 |
+| GET    | `/api/history`                     | List history tasks               |
+| POST   | `/api/research/{id}/resume`        | Resume a failed task             |
+| GET    | `/api/research/{id}/traces`        | Query trace events               |
+| GET    | `/api/research/{id}/events`        | Query history events             |
+| DELETE | `/api/research/{id}`               | Delete a task                    |
+| POST   | `/api/review/{id}`                 | Human review                     |
+| GET    | `/api/checkpoints`                 | List recoverable checkpoints     |
+| GET    | `/api/benchmark/cases`             | List benchmark cases             |
+| POST   | `/api/benchmark/run`               | Run a benchmark                  |
+| GET    | `/api/benchmark/result/{id}`       | Get benchmark result             |
+
+---
+
+## Project Structure
+
+```
+researchforge/
+├── core/              — LLM providers (Bailian, Ollama), Planner
+├── evaluation/        — Evaluation metrics, execution stats, quality score
+├── nodes/             — 10 pipeline nodes (plan → search → fetch → ... → audit)
+├── orchestration/     — ResearchGraph, ResearchState, ModePolicy, RetryPolicy, CheckpointStore
+├── rag/               — Evidence retrieval (BM25 + vector)
+├── research_service.py — Unified service entry point
+├── service/           — FastAPI app, SSE, static frontend
+├── tools/             — Web search (DuckDuckGo)
+├── trace/             — TraceCollector, TraceStore (JSONL persistence)
+└── tests/             — 17 test files (264 tests)
+
+benchmarks/
+├── benchmark_runner.py  — Run benchmark cases
+├── benchmark_report.py  — Generate comparison reports
+├── cases/               — JSON case definitions
+└── tests/               — Benchmark tests
 ```
 
 ---
 
-## Screenshots
+## Limitations
 
-### Agent Trace 时间线
-```
-THINK    GapAgent → 需要搜索财务数据
-         💭 需要查找最新财报数据来验证这个缺口
-ACT      GapAgent → gap_search("xxx")
-         📋 找到 5 个相关结果
-OBSERVE  GapAgent → 结果中有官方财报数据
-         ✓ 缺口已填补
-```
+- **Quality Score is heuristic**: It helps compare runs but does not guarantee factual accuracy.
+- **Search quality depends on external sources**: Results vary by search engine availability.
+- **Claim Verification depends on LLM**: Evidence-to-claim verification quality is bounded by the configured model.
+- **Frontend is single-file**: `index.html` with embedded CSS/JS. Functional but not production-grade.
+- **Storage is file-based**: Local JSON/JSONL files. Suitable for demos, not large-scale production.
+- **No authentication or multi-tenant**: API has no auth layer — suited for local or trusted-network use.
 
-### 搜索结果展示
-```
-搜索完成: 3 个来源
-[来源1] 数据库在人工智能中的作用与选型
-[来源2] AI Agent 的 ReAct 模式原理
-[来源3] 大模型评估基准与方法综述
-```
+---
+
+## Roadmap
+
+- **Database-backed persistence** — SQLite or PostgreSQL for reliability and scale
+- **Token / cost tracking** — Count LLM tokens and API costs per task
+- **Authentication** — API key auth and user isolation
+- **Distributed Workers** — Run Deep Workers across processes or machines
+- **CLI interface** — `researchforge run "topic" --mode deep`
 
 ---
 

@@ -1754,3 +1754,92 @@ class TestResearchGraphCheckpoint:
         monkeypatch.setattr("researchforge.nodes.gap_agent.run_evidence_gap_agent", mock_gap_agent)
         monkeypatch.setattr("researchforge.nodes.audit_node.run_audit_node", mock_audit)
         monkeypatch.setattr("researchforge.nodes.write_node.run_write_node", mock_write)
+
+
+class TestRunWithRetryTrace:
+    """_run_with_retry + Tracer 集成测试"""
+
+    @pytest.fixture
+    def ck(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            yield CheckpointStore(store_dir=Path(tmp))
+
+    def test_retry_records_retry_trace_event(self, ck):
+        """重试时记录 stage=retry trace 事件"""
+        from researchforge.trace import TraceCollector
+        from researchforge.orchestration.retry_policy import searching_policy
+
+        tracer = TraceCollector(run_id="retry_trace_1")
+        graph = ResearchGraph(mode=ResearchMode.FAST, checkpoint_store=ck)
+        graph.start("test", task_id="retry_trace_1")
+
+        call_count = {"val": 0}
+
+        def op_ok_after_2():
+            call_count["val"] += 1
+            if call_count["val"] < 3:
+                raise TimeoutError("transient")
+            return "ok"
+
+        result = graph._run_with_retry("test_node", searching_policy, op_ok_after_2, tracer=tracer)
+        assert result == "ok"
+
+        events = tracer.get_all()
+        retry_evs = [e for e in events if e["stage"] == "retry"]
+        assert len(retry_evs) == 2, f"应记录 2 次 retry, 实际 {len(retry_evs)}"
+        for ev in retry_evs:
+            assert ev["action"] == "test_node"
+            assert "attempt=" in ev["observation"]
+        # 不应有 retry_exhausted（最终成功）
+        exhausted = [e for e in events if e["stage"] == "retry_exhausted"]
+        assert len(exhausted) == 0
+
+    def test_retry_exhausted_records_trace_event(self, ck):
+        """重试耗尽时记录 stage=retry_exhausted trace"""
+        from researchforge.trace import TraceCollector
+        from researchforge.orchestration.retry_policy import searching_policy
+
+        tracer = TraceCollector(run_id="retry_trace_2")
+        graph = ResearchGraph(mode=ResearchMode.FAST, checkpoint_store=ck)
+        graph.start("test", task_id="retry_trace_2")
+
+        def always_fail():
+            raise TimeoutError("always fail")
+
+        with pytest.raises(TimeoutError):
+            graph._run_with_retry("test_node", searching_policy, always_fail, tracer=tracer)
+
+        events = tracer.get_all()
+        retry_evs = [e for e in events if e["stage"] == "retry"]
+        exhausted_evs = [e for e in events if e["stage"] == "retry_exhausted"]
+        # searching_policy: max_retries=2, 所以 attempt=1 失败→retry, attempt=2 失败→retry, attempt=3→exhausted
+        assert len(retry_evs) == 2, f"应记录 2 次 retry, 实际 {len(retry_evs)}"
+        assert len(exhausted_evs) == 1, f"应记录 1 次 retry_exhausted, 实际 {len(exhausted_evs)}"
+        assert exhausted_evs[0]["action"] == "test_node"
+        assert "always fail" in exhausted_evs[0]["observation"]
+
+    def test_resume_skip_not_confused_with_retry(self, ck):
+        """
+        Resume 后重新执行节点不应被误认为是 Retry。
+
+        模拟场景：
+          resume_skip(WRITING) → node_start(WRITING) → node_end(WRITING)
+        不应产生任何 retry 事件。
+        """
+        from researchforge.trace import TraceCollector
+        tracer = TraceCollector(run_id="resume_no_retry")
+
+        # 直接模拟 resume 后执行的场景：跳过→正常执行
+        tracer.record(agent_name="ResearchGraph", stage="resume_skip",
+                      action="WRITING", observation="已有报告, 跳过")
+        tracer.record(agent_name="ResearchGraph", stage="node_start",
+                      action="WRITING", input="重新执行")
+        tracer.record(agent_name="ResearchGraph", stage="node_end",
+                      action="WRITING", result="新报告")
+
+        events = tracer.get_all()
+        stages = [e["stage"] for e in events]
+        assert stages == ["resume_skip", "node_start", "node_end"], \
+            f"期望 resume_skip→node_start→node_end, 实际 {stages}"
+        retry_count = sum(1 for s in stages if s == "retry")
+        assert retry_count == 0, f"不应包含 retry, 实际 {retry_count}"

@@ -1,0 +1,47 @@
+# Environment
+.env
+.env.example
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Test cache
+.pytest_cache/
+.pytest_cache
+
+# Runtime data (persisted via volumes)
+researchforge/service/data/
+
+# Demo outputs
+demo/outputs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+docs/
+
+# Logs
+logs/
+*.log
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# READMEs (not needed at runtime)
+README.md

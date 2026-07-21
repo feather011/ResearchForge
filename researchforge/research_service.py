@@ -190,6 +190,7 @@ class ResearchService:
 
         _dg = ResearchGraph(mode=ResearchMode.DEEP, checkpoint_store=self._ck)
         _base = _dg.continue_from_state(rs, self.llm, progress_callback, tracer)
+        # 补充 Deep 模式特有字段
         _base["stats"]["workers"] = len(worker_results_raw)
         _base["stats"]["conflicts"] = len(conflicts)
         _base["mode"] = "deep"
@@ -197,7 +198,6 @@ class ResearchService:
         if _base["report"] and conflicts:
             _ct = "\n".join(f"- {c.claim}" for c in conflicts)
             _base["report"] += f"\n\n---\n### 来源冲突\n{_ct}"
-            _base["stats"]["report_length"] = len(_base["report"])
         return _base
 
     def _run_deep(self, topic: str, progress_callback=None, tracer=None, task_id=None) -> Dict[str, Any]:
@@ -314,7 +314,6 @@ class ResearchService:
         if _base["report"] and conflicts:
             _ct = "\n".join(f"- {c.claim}" for c in conflicts)
             _base["report"] += f"\n\n---\n### 来源冲突\n{_ct}"
-            _base["stats"]["report_length"] = len(_base["report"])
         return _base
 
     def _run_standard(

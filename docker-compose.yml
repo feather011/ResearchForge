@@ -1,0 +1,26 @@
+services:
+  researchforge:
+    build: .
+    container_name: researchforge
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    volumes:
+      # Persist runtime data across restarts
+      - researchforge_data:/app/researchforge/service/data
+      - researchforge_demo_outputs:/app/demo/outputs
+      # Mount .env for container access (excluded from image)
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    # Run mock demo with: docker compose run --rm researchforge python demo/scripts/run_demo.py --all --mock
+
+volumes:
+  researchforge_data:
+  researchforge_demo_outputs:

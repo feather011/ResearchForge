@@ -1,0 +1,23 @@
+[
+  {
+    "id": "fast_simple",
+    "topic": "Python 装饰器原理与应用",
+    "description": "Fast 模式：简单、范围明确的编程概念，展示低延迟完整流程",
+    "expected_questions": 2,
+    "modes": ["fast"]
+  },
+  {
+    "id": "standard_multi_source",
+    "topic": "Transformer 自注意力机制加速方法",
+    "description": "Standard 模式：需多来源交叉验证的技术主题，展示 Coverage / Claim Verify / Audit",
+    "expected_questions": 3,
+    "modes": ["standard"]
+  },
+  {
+    "id": "deep_complex",
+    "topic": "大语言模型推理优化技术综述",
+    "description": "Deep 模式：可拆为 KV 缓存、模型量化、投机解码等多个研究方向",
+    "expected_questions": 3,
+    "modes": ["deep"]
+  }
+]

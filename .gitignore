@@ -36,3 +36,6 @@ kimi给的选题.md
 # 评价数据集（含测试数据）
 evals/dataset.json
 evals/evaluation_report.json
+
+# Demo 运行输出
+demo/outputs/

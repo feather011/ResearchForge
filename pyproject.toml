@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "researchforge"
+version = "1.0.0"
+description = "ResearchForge — 智能研究工坊 / LLM Agent Research System"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.26.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "duckduckgo_search>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "playwright>=1.40.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["researchforge*", "benchmarks*"]

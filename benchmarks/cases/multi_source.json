@@ -1,0 +1,7 @@
+{
+  "id": "multi_source",
+  "topic": "Transformer 架构原理",
+  "description": "需要多来源交叉验证的技术主题",
+  "expected_questions": 3,
+  "modes": ["fast", "standard", "deep"]
+}

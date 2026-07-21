@@ -1,0 +1,7 @@
+{
+  "id": "simple_research",
+  "topic": "AI Agent 基本原理",
+  "description": "简单主题，Fast/Standard/Deep 三模式覆盖",
+  "expected_questions": 2,
+  "modes": ["fast", "standard", "deep"]
+}

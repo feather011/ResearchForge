@@ -125,6 +125,147 @@ header {
 }
 @keyframes flow-move { to { stroke-dashoffset: -24; } }
 
+/* ======================== TRACE MODAL ======================== */
+.trace-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(4, 8, 20, 0.85);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fade-in 0.2s ease;
+}
+.trace-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 90%; max-width: 780px;
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: modal-in 0.25s ease;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.trace-modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.trace-modal-header .title {
+  font-family: var(--font-display); font-size: 14px; font-weight: 600;
+  color: var(--text-primary); flex: 1;
+}
+.trace-modal-header .close-btn {
+  font-size: 18px; color: var(--text-muted); cursor: pointer;
+  padding: 4px 8px; border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  background: none; border: none; font-family: inherit;
+}
+.trace-modal-header .close-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.trace-modal-body {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+}
+.trace-modal-empty {
+  text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px;
+}
+
+/* ======================== QUALITY PANEL ======================== */
+.quality-panel {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;
+}
+.q-header {
+  font-family: var(--font-display); font-size: 13px; font-weight: 600;
+  color: var(--text-primary); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.q-disclaimer {
+  font-size: 10px; font-weight: 400; color: var(--text-muted);
+  font-family: var(--font-body); font-style: italic;
+}
+.q-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.q-grid:last-child { margin-bottom: 0; }
+.q-score-box {
+  text-align: center; padding: 16px; border-radius: var(--radius-md);
+  border: 2px solid var(--accent-teal); background: var(--bg-elevated);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.q-score-num { font-family: var(--font-display); font-size: 36px; font-weight: 700; line-height: 1; }
+.q-score-grade { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-top: 2px; }
+.q-score-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.q-detail-box {
+  padding: 12px; border-radius: var(--radius-sm);
+  background: var(--bg-elevated); border: 1px solid var(--border);
+}
+.q-section-title {
+  font-family: var(--font-display); font-size: 11px; font-weight: 600;
+  color: var(--text-secondary); margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.q-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12px; }
+.q-label { color: var(--text-secondary); }
+.q-val { font-family: var(--font-display); font-size: 11px; color: var(--text-primary); text-align: right; }
+@media (max-width: 820px) { .q-grid { grid-template-columns: 1fr; } }
+/* Trace items in modal */
+.tm-event {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  font-size: 12px; line-height: 1.5;
+  border-left: 2px solid var(--border);
+  margin-bottom: 2px;
+  transition: background 0.1s;
+}
+.tm-event:hover { background: var(--bg-hover); }
+.tm-event.start { border-left-color: var(--accent-blue); }
+.tm-event.end   { border-left-color: var(--accent-teal); }
+.tm-event.fail  { border-left-color: var(--accent-red);   background: var(--accent-red-dim); }
+.tm-event.retry { border-left-color: var(--accent-amber); background: var(--accent-amber-dim); }
+.tm-event.degraded { border-left-color: var(--accent-amber); background: var(--accent-amber-dim); }
+.tm-time {
+  font-family: var(--font-display); font-size: 10px;
+  color: var(--text-muted); white-space: nowrap; min-width: 70px; padding-top: 1px;
+}
+.tm-agent {
+  font-family: var(--font-display); font-size: 10px; font-weight: 600;
+  white-space: nowrap; min-width: 90px; padding-top: 1px;
+}
+.tm-badge {
+  display: inline-block; font-size: 10px; font-family: var(--font-display);
+  padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: 600;
+}
+.tm-badge.fail  { color: var(--accent-red);   background: var(--accent-red-dim); }
+.tm-badge.retry { color: var(--accent-amber); background: var(--accent-amber-dim); }
+.tm-badge.degraded { color: var(--accent-amber); background: var(--accent-amber-dim); }
+.tm-badge.skip  { color: var(--text-muted);    background: var(--bg-elevated); }
+.tm-action {
+  color: var(--text-secondary); flex: 1; word-break: break-word;
+}
+.tm-dur {
+  font-family: var(--font-display); font-size: 10px;
+  color: var(--text-muted); white-space: nowrap; text-align: right;
+  padding-top: 1px;
+}
+/* Worker group header */
+.tm-worker-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; margin: 8px 0 4px;
+  font-family: var(--font-display); font-size: 12px; font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.tm-summary {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 12px;
+  background: var(--bg-elevated); border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.tm-summary-item { display: flex; gap: 4px; align-items: center; }
+.tm-summary-label { color: var(--text-muted); font-family: var(--font-display); font-size: 10px; text-transform: uppercase; }
+.tm-summary-value { color: var(--text-primary); font-family: var(--font-display); font-size: 12px; font-weight: 600; }
+
 /* Agent stats in left panel */
 .agent-stats { margin-top: 12px; }
 .agent-stat-row {
@@ -339,6 +480,13 @@ header {
 .history-item:hover .resume-btn { opacity: 1; }
 .resume-btn:hover { color: var(--accent-teal); }
 
+.trace-btn {
+  font-size: 13px; cursor: pointer; padding: 0 2px;
+  opacity: 0; transition: opacity 0.2s; flex-shrink: 0; line-height: 1;
+}
+.history-item:hover .trace-btn { opacity: 1; }
+.trace-btn:hover { filter: brightness(1.3); }
+
 /* ======================== RESPONSIVE ======================== */
 @media (max-width: 1100px) {
   .app-grid { grid-template-columns: 220px 1fr 180px; }
@@ -430,6 +578,22 @@ header {
 }
 .trace-stage.node_end {
   border-left-color: var(--accent-teal);
+}
+.trace-stage.retry {
+  border-left-color: var(--accent-amber);
+  background: var(--accent-amber-dim);
+}
+.trace-stage.retry_exhausted {
+  border-left-color: var(--accent-red);
+  background: var(--accent-red-dim);
+}
+.trace-stage.degraded {
+  border-left-color: var(--accent-amber);
+  background: var(--accent-amber-dim);
+}
+.trace-stage.resume_skip {
+  border-left-color: var(--text-muted);
+  opacity: 0.7;
 }
 .trace-badge {
   font-family: var(--font-display);
@@ -579,6 +743,7 @@ header {
         <button class="btn btn-primary" id="btnStart" onClick="startResearch()">▶ 启动</button>
         <button class="btn btn-amber" id="btnResume" onClick="showResumePicker()" title="从检查点恢复">↻ 恢复</button>
         <button class="btn btn-outline" id="btnTest" onClick="startTest()" title="快速模拟测试SSE事件流">测试SSE</button>
+        <button class="btn btn-outline" id="btnBenchmark" onClick="showBenchmarkModal()" title="运行基准测试">📊 Benchmark</button>
       </div>
     </div>
 
@@ -960,7 +1125,7 @@ function connectSSE(id) {
         }
         metaHtml += '</div>';
       }
-      showResult(d.report, metaHtml);
+      showResult(d.report, metaHtml, d.stats);
       switchTab('result');
     }
     saveHistory(STATE.currentId, 'completed');
@@ -1219,11 +1384,94 @@ function hideReviewPanel() {
   document.getElementById('reviewPanel').classList.remove('visible');
 }
 
-function showResult(report, metaHtml = '') {
+function buildQualityPanel(stats) {
+  if (!stats) return '';
+  const s = stats;
+  const q = s.quality || {};
+  const claims = s.claims || {};
+  const citation = s.citation || {};
+  const coverage = s.coverage || {};
+  const audit = s.audit || {};
+  const exec = s.execution || {};
+
+  // Coverage 显示
+  let coverageHtml = '';
+  if (coverage.evaluated) {
+    const rate = coverage.coverage_rate !== null && coverage.coverage_rate !== undefined
+      ? (coverage.coverage_rate * 100).toFixed(1) + '%' : 'N/A';
+    coverageHtml = `<div class="q-row"><span class="q-label">覆盖率</span><span class="q-val">${rate} (${coverage.covered_questions}/${coverage.total_questions} 问题)</span></div>`;
+  } else {
+    coverageHtml = `<div class="q-row"><span class="q-label">覆盖率</span><span class="q-val" style="color:var(--text-muted);font-style:italic;">当前模式未执行覆盖率评估</span></div>`;
+  }
+
+  // Quality Score
+  const score = q.quality_score || 0;
+  const grade = q.grade || 'N/A';
+  const breakdown = q.breakdown || {};
+  const scoreColor = score >= 90 ? 'var(--accent-teal)' : score >= 75 ? 'var(--accent-amber)' : 'var(--accent-red)';
+
+  return `<div class="quality-panel">
+    <div class="q-header">📊 质量评估 <span class="q-disclaimer">质量分是项目内部规则评分，用于模式和任务间对比，不代表绝对事实准确率。</span></div>
+    <div class="q-grid">
+      <div class="q-score-box" style="border-color:${scoreColor}">
+        <div class="q-score-num" style="color:${scoreColor}">${score}</div>
+        <div class="q-score-grade" style="color:${scoreColor}">${grade}</div>
+        <div class="q-score-label">综合质量</div>
+      </div>
+      <div class="q-detail-box">
+        <div class="q-section-title">分项得分</div>
+        <div class="q-row"><span class="q-label">Claim 可信度</span><span class="q-val">${breakdown.claim_score || 0}/100</span></div>
+        <div class="q-row"><span class="q-label">引用质量</span><span class="q-val">${breakdown.citation_score || 0}/100</span></div>
+        <div class="q-row"><span class="q-label">证据覆盖</span><span class="q-val">${breakdown.coverage_score || 0}/100</span></div>
+        <div class="q-row"><span class="q-label">审计质量</span><span class="q-val">${breakdown.audit_score || 0}/100</span></div>
+      </div>
+      <div class="q-detail-box">
+        <div class="q-section-title">Claim 分布</div>
+        <div class="q-row"><span class="q-label">总结论</span><span class="q-val">${claims.total || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-teal)">✅ 可信</span><span class="q-val">${claims.supported || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-amber)">⚠️ 部分</span><span class="q-val">${claims.partially_supported || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-red)">❌ 不支持</span><span class="q-val">${claims.unsupported || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--text-muted)">❓ 未验证</span><span class="q-val">${claims.unverified || 0}</span></div>
+        <div class="q-row"><span class="q-label">可信率</span><span class="q-val">${(claims.supported_rate !== undefined && claims.supported_rate !== null ? (claims.supported_rate * 100).toFixed(1) : 'N/A') + '%'}</span></div>
+      </div>
+    </div>
+    <div class="q-grid">
+      <div class="q-detail-box">
+        <div class="q-section-title">引用指标</div>
+        <div class="q-row"><span class="q-label">引用标记</span><span class="q-val">${citation.total_marks || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-teal)">有效</span><span class="q-val">${citation.valid_marks || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-red)">无效</span><span class="q-val">${citation.invalid_marks || 0}</span></div>
+        <div class="q-row"><span class="q-label">引用来源数</span><span class="q-val">${citation.unique_sources_cited || 0}</span></div>
+        <div class="q-row"><span class="q-label">有效率</span><span class="q-val">${(citation.valid_rate !== undefined ? (citation.valid_rate * 100).toFixed(1) : '0.0') + '%'}</span></div>
+        <div class="q-row"><span class="q-label">来源利用率</span><span class="q-val">${(citation.source_utilization_rate !== undefined ? (citation.source_utilization_rate * 100).toFixed(1) : '0.0') + '%'}</span></div>
+      </div>
+      <div class="q-detail-box">
+        <div class="q-section-title">${coverage.evaluated ? '覆盖率' : '覆盖率（未评估）'}</div>
+        ${coverageHtml}
+        <div class="q-section-title" style="margin-top:10px;">审计</div>
+        <div class="q-row"><span class="q-label">状态</span><span class="q-val" style="color:${audit.passed ? 'var(--accent-teal)' : 'var(--accent-red)'}">${audit.degraded ? '⚠️ 降级' : audit.passed ? '✅ 通过' : '❌ 未通过'}</span></div>
+        <div class="q-row"><span class="q-label">重写次数</span><span class="q-val">${audit.rewritten || 0}</span></div>
+        <div class="q-row"><span class="q-label">问题数</span><span class="q-val">${audit.issues_count || 0}</span></div>
+      </div>
+      <div class="q-detail-box">
+        <div class="q-section-title">执行指标</div>
+        <div class="q-row"><span class="q-label">总耗时</span><span class="q-val">${exec.duration_s || 0}s</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-amber)">重试次数</span><span class="q-val">${exec.retry_count || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-red)">重试耗尽</span><span class="q-val">${exec.retry_exhausted_count || 0}</span></div>
+        <div class="q-row"><span class="q-label" style="color:var(--accent-amber)">降级次数</span><span class="q-val">${exec.degraded_count || 0}</span></div>
+        <div class="q-row"><span class="q-label">恢复次数</span><span class="q-val">${exec.resume_count || 0}</span></div>
+        <div class="q-row"><span class="q-label">最慢节点</span><span class="q-val" style="font-family:var(--font-display);font-size:11px;">${exec.slowest_node || '-'}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function showResult(report, metaHtml = '', stats = null) {
   document.getElementById('resultEmpty').style.display = 'none';
   const el = document.getElementById('resultContent');
   el.style.display = 'block';
-  el.innerHTML = (metaHtml || '') + '<div style="white-space:pre-wrap;">' + escapeHtml(report) + '</div>';
+  const qualityPanel = stats ? buildQualityPanel(stats) : '';
+  el.innerHTML = qualityPanel + (metaHtml || '') + '<div style="white-space:pre-wrap;">' + escapeHtml(report) + '</div>';
   setTimeout(() => switchTab('result'), 800);
 }
 
@@ -1308,10 +1556,14 @@ function renderHistory() {
     const active = STATE.activeSessionId === rid ? ' style="background:var(--bg-hover);border-color:var(--accent-purple);"' : '';
     const isFailed = h.state === 'failed';
     const showResumeBtn = isFailed;
+    const modeLabel = h.mode ? h.mode : '';
+    const modeColor = modeLabel === 'fast' ? 'var(--accent-teal)' : modeLabel === 'standard' ? 'var(--accent-amber)' : modeLabel === 'deep' ? 'var(--accent-red)' : '';
+    const modeBadge = modeLabel ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:${modeColor}22;color:${modeColor};margin-left:4px;font-family:var(--font-display);">${modeLabel}</span>` : '';
     return `<div class="history-item state-${h.state}"${active}>
-      <span class="topic" onclick="clickHistory('${rid}')">${h.topic}</span>
-      <span class="state-label">${h.state}</span>
+      <span class="topic" onclick="clickHistory('${rid}')">${h.topic}${modeBadge}</span>
+      <span class="state-label">${h.state}${h.degraded ? ' ⚠️' : ''}</span>
       ${showResumeBtn ? `<span class="resume-btn" onclick="event.stopPropagation();resumeFromHistory('${rid}')" title="恢复研究">↻</span>` : ''}
+      <span class="trace-btn" onclick="event.stopPropagation();showTraceModal('${rid}')" title="查看执行轨迹">📋</span>
       <span class="delete-btn" onclick="event.stopPropagation();deleteResearch('${rid}')" title="删除">✕</span>
     </div>`;
   }).join('');
@@ -1413,7 +1665,7 @@ function replayEvents(events) {
           if (e.stats && e.stats.conflicts) metaHtml += `<span style="color:var(--accent-amber)">冲突: <strong>${e.stats.conflicts}</strong></span>`;
           metaHtml += '</div>';
         }
-        showResult(e.report, metaHtml);
+        showResult(e.report, metaHtml, e.stats);
       }
     } else if (e.type === 'error') {
       addEvent('System', `错误: ${e.error || ''}`, 'error');
@@ -1610,11 +1862,17 @@ function addTraceEntry(traceData) {
 
   // 阶段样式
   const stageConfig = {
-    'think':        { cls: 'think',        icon: '💭', label: 'Thought' },
-    'action':       { cls: 'action',       icon: '⚡', label: 'Action' },
-    'observation':  { cls: 'observation',  icon: '📋', label: 'Observation' },
-    'node_start':   { cls: 'node_start',   icon: '🔵', label: '节点开始' },
-    'node_end':     { cls: 'node_end',     icon: '🟢', label: '节点结束' },
+    'think':           { cls: 'think',           icon: '💭', label: 'Thought' },
+    'action':          { cls: 'action',          icon: '⚡', label: 'Action' },
+    'observation':     { cls: 'observation',     icon: '📋', label: 'Observation' },
+    'node_start':      { cls: 'node_start',      icon: '🔵', label: '节点开始' },
+    'node_end':        { cls: 'node_end',        icon: '🟢', label: '节点结束' },
+    'retry':           { cls: 'retry',           icon: '🔄', label: '重试' },
+    'retry_exhausted': { cls: 'retry_exhausted', icon: '⛔', label: '重试耗尽' },
+    'degraded':        { cls: 'degraded',        icon: '⚠️', label: '降级' },
+    'resume_skip':     { cls: 'resume_skip',     icon: '⏭️', label: '跳过' },
+    'resume_started':  { cls: 'resume_skip',     icon: '↻', label: '恢复开始' },
+    'resume_completed':{ cls: 'node_end',        icon: '✅', label: '恢复完成' },
   };
   const cfg = stageConfig[stage] || { cls: '', icon: '•', label: stage };
 
@@ -1673,6 +1931,42 @@ function addTraceEntry(traceData) {
     if (result) {
       innerHtml += `<div class="trace-result-box">✓ ${escapeHtml(result)}</div>`;
     }
+    if (obs && (obs.includes('status=failed') || obs.includes('FAILED'))) {
+      innerHtml += `<div class="trace-observation-text" style="color:var(--accent-red)">❌ ${escapeHtml(obs.slice(0, 100))}</div>`;
+    }
+
+  } else if (stage === 'retry') {
+    innerHtml = `<span style="color:var(--accent-amber)">🔄 重试 ${escapeHtml(action)}</span>`;
+    if (obs) {
+      innerHtml += `<div class="trace-observation-text" style="color:var(--accent-amber);background:var(--accent-amber-dim);">${escapeHtml(obs.slice(0, 100))}</div>`;
+    }
+
+  } else if (stage === 'retry_exhausted') {
+    innerHtml = `<span style="color:var(--accent-red)">⛔ 重试耗尽 ${escapeHtml(action)}</span>`;
+    if (obs) {
+      innerHtml += `<div class="trace-observation-text" style="color:var(--accent-red);background:var(--accent-red-dim);">${escapeHtml(obs.slice(0, 100))}</div>`;
+    }
+
+  } else if (stage === 'degraded') {
+    innerHtml = `<span style="color:var(--accent-amber)">⚠️ 降级 ${escapeHtml(action)}</span>`;
+    if (obs) {
+      innerHtml += `<div class="trace-observation-text" style="color:var(--accent-amber);background:var(--accent-amber-dim);">${escapeHtml(obs.slice(0, 100))}</div>`;
+    }
+
+  } else if (stage === 'resume_skip') {
+    innerHtml = `<span style="color:var(--text-muted)">⏭️ 跳过 ${escapeHtml(action)}</span>`;
+    if (obs) {
+      innerHtml += `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(obs.slice(0, 80))}</div>`;
+    }
+
+  } else if (stage === 'resume_started') {
+    innerHtml = `<span style="color:var(--accent-amber)">↻ 恢复开始 ${escapeHtml(action)}</span>`;
+
+  } else if (stage === 'resume_completed') {
+    innerHtml = `<span style="color:var(--accent-teal)">✅ 恢复完成 ${escapeHtml(action)}</span>`;
+    if (obs) {
+      innerHtml += `<div class="trace-result-box">${escapeHtml(obs.slice(0, 100))}</div>`;
+    }
   }
 
   content.innerHTML = innerHtml;
@@ -1696,6 +1990,135 @@ function addTraceEntry(traceData) {
     // 滚动到所属 section 可见
     section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
+}
+
+// ======================== BENCHMARK MODAL ========================
+
+function showBenchmarkModal() {
+  const existing = document.querySelector('.trace-modal-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'trace-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="trace-modal" onclick="event.stopPropagation()" style="max-width:700px;">
+      <div class="trace-modal-header">
+        <span class="title">📊 Benchmark 基准测试</span>
+        <button class="close-btn" onclick="this.closest('.trace-modal-overlay').remove()">✕</button>
+      </div>
+      <div class="trace-modal-body" id="bmBody">
+        <div class="trace-modal-empty">⏳ 加载 case 列表...</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  fetch('/api/benchmark/cases')
+    .then(r => r.json())
+    .then(data => {
+      const body = document.getElementById('bmBody');
+      const cases = data.cases || [];
+      if (cases.length === 0) {
+        body.innerHTML = '<div class="trace-modal-empty">📭 无可用 Benchmark case</div>';
+        return;
+      }
+      let html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">选择 Case 和运行模式：</div>';
+      cases.forEach(c => {
+        const modes = (c.modes || ['fast']).map(m => {
+          const checked = m === 'fast' ? 'checked' : '';
+          return `<label style="margin-right:10px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+            <input type="checkbox" class="bm-mode" data-case="${c.id}" data-mode="${m}" ${checked}> ${m}
+          </label>`;
+        }).join('');
+        html += `<div style="padding:10px 12px;margin-bottom:6px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:13px;font-weight:500;color:var(--text-primary);">${escapeHtml(c.id)}</span>
+            <button class="btn btn-primary btn-sm" onclick="runBenchmark('${c.id}')" style="font-size:11px;padding:4px 12px;">▶ 运行</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${escapeHtml(c.topic)}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${modes}</div>
+          <div id="bmResult_${c.id}" style="margin-top:6px;"></div>
+        </div>`;
+      });
+      body.innerHTML = html;
+    })
+    .catch(err => {
+      document.getElementById('bmBody').innerHTML =
+        `<div class="trace-modal-empty" style="color:var(--accent-red)">❌ 加载失败: ${escapeHtml(err.message)}</div>`;
+    });
+}
+
+function runBenchmark(caseId) {
+  const modes = [];
+  document.querySelectorAll(`.bm-mode[data-case="${caseId}"]:checked`).forEach(cb => {
+    modes.push(cb.dataset.mode);
+  });
+  if (modes.length === 0) { modes.push('fast'); }
+
+  const resultDiv = document.getElementById(`bmResult_${caseId}`);
+  resultDiv.innerHTML = '<span style="color:var(--accent-amber);font-size:12px;">⏳ 运行中...</span>';
+
+  fetch('/api/benchmark/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ case_id: caseId, modes }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      const bmId = data.benchmark_id;
+      pollBenchmarkResult(bmId, resultDiv);
+    })
+    .catch(err => {
+      resultDiv.innerHTML = `<span style="color:var(--accent-red);font-size:12px;">❌ ${escapeHtml(err.message)}</span>`;
+    });
+}
+
+function pollBenchmarkResult(bmId, resultDiv) {
+  let attempts = 0;
+  const maxAttempts = 60;
+  const poll = () => {
+    fetch(`/api/benchmark/result/${bmId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.state === 'pending') {
+          attempts++;
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 2000);
+          } else {
+            resultDiv.innerHTML = '<span style="color:var(--accent-red);font-size:12px;">⏰ 超时</span>';
+          }
+          return;
+        }
+        if (data.state === 'failed') {
+          resultDiv.innerHTML = `<span style="color:var(--accent-red);font-size:12px;">❌ ${escapeHtml(data.error || '失败')}</span>`;
+          return;
+        }
+        // completed: render comparison
+        const result = data.result || {};
+        const comparison = result.comparison || result.results || {};
+        let html = '<div style="font-size:11px;border:1px solid var(--accent-teal-dim);border-radius:6px;padding:8px;margin-top:4px;">';
+        Object.keys(comparison).forEach(mode => {
+          const r = comparison[mode];
+          const stats = r.stats || {};
+          const ok = r.success ? '✅' : '❌';
+          const q = stats.quality || {};
+          html += `<div style="display:flex;gap:8px;padding:2px 0;font-size:11px;color:var(--text-secondary);">
+            <span style="min-width:60px;font-weight:600;color:${mode === 'fast' ? 'var(--accent-teal)' : mode === 'standard' ? 'var(--accent-amber)' : 'var(--accent-red)'};">${mode}</span>
+            <span>${ok}</span>
+            <span>${r.duration_s || 0}s</span>
+            <span>来源:${stats.sources || 0}</span>
+            <span>证据:${stats.evidences || 0}</span>
+            <span>质量:${q.quality_score || 0}(${q.grade || 'N/A'})</span>
+          </div>`;
+        });
+        html += '</div>';
+        resultDiv.innerHTML = html;
+      })
+      .catch(err => {
+        resultDiv.innerHTML = `<span style="color:var(--accent-red);font-size:12px;">❌ 查询失败: ${escapeHtml(err.message)}</span>`;
+      });
+  };
+  setTimeout(poll, 2000);
 }
 
 // ======================== ELAPSED TIME TIMER ========================
@@ -1722,6 +2145,228 @@ window.addEventListener('load', () => {
     addSystemEvent('💡 试试点击 "测试SSE" 按钮体验事件流，或输入主题进行真实研究');
   }, 500);
 });
+
+// ======================== TRACE MODAL ========================
+
+function showTraceModal(taskId) {
+  // Remove existing overlay
+  const existing = document.querySelector('.trace-modal-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'trace-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="trace-modal" onclick="event.stopPropagation()">
+      <div class="trace-modal-header">
+        <span class="title">📋 执行轨迹 · #${escapeHtml(taskId)}</span>
+        <button class="close-btn" onclick="this.closest('.trace-modal-overlay').remove()">✕</button>
+      </div>
+      <div class="trace-modal-body" id="traceModalBody">
+        <div class="trace-modal-empty">⏳ 加载中...</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  fetch(`/api/research/${taskId}/traces`)
+    .then(r => r.json())
+    .then(data => {
+      renderTracesInModal(data.traces || []);
+    })
+    .catch(err => {
+      document.getElementById('traceModalBody').innerHTML =
+        `<div class="trace-modal-empty" style="color:var(--accent-red)">❌ 加载失败: ${escapeHtml(err.message)}</div>`;
+    });
+}
+
+function renderTracesInModal(traces) {
+  const body = document.getElementById('traceModalBody');
+  if (!body) return;
+  if (!traces || traces.length === 0) {
+    body.innerHTML = '<div class="trace-modal-empty">📭 无轨迹记录</div>';
+    return;
+  }
+
+  // Compute summary stats by stage
+  let totalFail = 0;
+  let totalRetry = 0;
+  let totalDegraded = 0;
+  let totalSkip = 0;
+  const uniqueNodes = new Set();
+
+  traces.forEach(t => {
+    if (t.action) uniqueNodes.add(t.action);
+    const stage = t.stage || '';
+    if (stage === 'retry') totalRetry++;
+    else if (stage === 'retry_exhausted') totalFail++;
+    else if (stage === 'degraded') totalDegraded++;
+    else if (stage === 'resume_skip') totalSkip++;
+    else if (stage === 'resume_started') totalSkip++;
+    else if (stage === 'resume_completed') totalSkip++;
+    else if (stage === 'node_end' && (t.observation || '').includes('status=failed')) totalFail++;
+  });
+
+  // Build summary bar
+  let summaryHtml = `<div class="tm-summary">
+    <span class="tm-summary-item">
+      <span class="tm-summary-label">总事件</span>
+      <span class="tm-summary-value">${traces.length}</span>
+    </span>
+    <span class="tm-summary-item">
+      <span class="tm-summary-label">不同节点</span>
+      <span class="tm-summary-value">${uniqueNodes.size}</span>
+    </span>
+    <span class="tm-summary-item">
+      <span class="tm-summary-label">重试</span>
+      <span class="tm-summary-value" ${totalRetry > 0 ? 'style="color:var(--accent-amber)"' : ''}>${totalRetry}</span>
+    </span>
+    <span class="tm-summary-item">
+      <span class="tm-summary-label">失败</span>
+      <span class="tm-summary-value" ${totalFail > 0 ? 'style="color:var(--accent-red)"' : ''}>${totalFail}</span>
+    </span>
+    ${totalDegraded > 0 ? `<span class="tm-summary-item">
+      <span class="tm-summary-label">降级</span>
+      <span class="tm-summary-value" style="color:var(--accent-amber)">${totalDegraded}</span>
+    </span>` : ''}
+    ${totalSkip > 0 ? `<span class="tm-summary-item">
+      <span class="tm-summary-label">跳过</span>
+      <span class="tm-summary-value" style="color:var(--text-muted)">${totalSkip}</span>
+    </span>` : ''}
+  </div>`;
+
+  // 按 agent_name 分组
+  const groups = {};
+  traces.forEach(t => {
+    const agent = t.agent_name || 'System';
+    if (!groups[agent]) groups[agent] = [];
+    groups[agent].push(t);
+  });
+
+  // 各 agent 按时间排序
+  const sortedAgents = Object.keys(groups).sort((a, b) =>
+    (groups[a][0].timestamp || 0) - (groups[b][0].timestamp || 0)
+  );
+
+  let eventsHtml = '';
+
+  sortedAgents.forEach((agent) => {
+    const agentTraces = groups[agent].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    const isWorker = /^worker|^W\d+/i.test(agent);
+    const color = isWorker ? 'var(--accent-teal)' : 'var(--accent-purple)';
+
+    eventsHtml += `<div class="tm-worker-header" style="color:${color};border-left:3px solid ${color};">
+      <span>${isWorker ? '🧑‍🔬' : '🤖'} ${escapeHtml(agent)}</span>
+      <span style="color:var(--text-muted);font-weight:400;font-size:11px;">${agentTraces.length} 条事件</span>
+    </div>`;
+
+    agentTraces.forEach(t => {
+      const stage = t.stage || '';
+      const act = t.action || '';
+      const obs = t.observation || '';
+      const dur = t.duration_ms || 0;
+      const inp = t.input || '';
+      const res = t.result || '';
+      const ts = t.timestamp || 0;
+
+      // ── 跳过 think（隐藏推理） ──
+      if (stage === 'think') return;
+
+      // ── 根据 stage 判定事件类型 ──
+      let eventClass = '';
+      let badgeHtml = '';
+      let actionHtml = '';
+
+      const timeStr = ts > 0 ? new Date(ts * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+      const durStr = dur > 0 ? (dur >= 1000 ? (dur/1000).toFixed(1) + 's' : dur.toFixed(0) + 'ms') : '';
+
+      switch (stage) {
+
+        case 'node_start':
+          eventClass = 'start';
+          actionHtml = `<span style="color:var(--accent-blue)">🔵</span> ${escapeHtml(act)}`;
+          if (inp) actionHtml += ` · ${escapeHtml(inp.slice(0, 60))}`;
+          break;
+
+        case 'node_end': {
+          const isFail = obs.includes('status=failed') || obs.includes('FAILED');
+          if (isFail) {
+            eventClass = 'fail';
+            badgeHtml = '<span class="tm-badge fail">失败</span>';
+            const errMsg = obs.replace(/^status=failed,\s*error=/i, '');
+            actionHtml = `<span style="color:var(--accent-blue)">🔵</span> ${escapeHtml(act)} · <span style="color:var(--accent-red)">${escapeHtml(errMsg.slice(0, 60))}</span>`;
+          } else {
+            eventClass = 'end';
+            actionHtml = `<span style="color:var(--accent-teal)">🟢</span> ${escapeHtml(act)}`;
+            if (res) actionHtml += ` → ${escapeHtml(res.slice(0, 80))}`;
+          }
+          break;
+        }
+
+        case 'retry':
+          eventClass = 'retry';
+          badgeHtml = '<span class="tm-badge retry">重试</span>';
+          actionHtml = `<span style="color:var(--accent-amber)">🔄</span> ${escapeHtml(act)}`;
+          if (obs) actionHtml += ` · ${escapeHtml(obs.slice(0, 80))}`;
+          break;
+
+        case 'retry_exhausted':
+          eventClass = 'fail';
+          badgeHtml = '<span class="tm-badge fail">重试耗尽</span>';
+          actionHtml = `<span style="color:var(--accent-red)">⛔</span> ${escapeHtml(act)}`;
+          if (obs) actionHtml += ` · ${escapeHtml(obs.slice(0, 80))}`;
+          break;
+
+        case 'degraded':
+          eventClass = 'degraded';
+          badgeHtml = '<span class="tm-badge degraded">降级</span>';
+          actionHtml = `<span style="color:var(--accent-amber)">⚠️</span> ${escapeHtml(act)}`;
+          if (obs) actionHtml += ` · ${escapeHtml(obs.slice(0, 80))}`;
+          break;
+
+        case 'resume_skip':
+          eventClass = '';
+          badgeHtml = '<span class="tm-badge skip">跳过</span>';
+          actionHtml = `${escapeHtml(act)} · ${escapeHtml(obs.slice(0, 60))}`;
+          break;
+
+        case 'resume_started':
+          eventClass = '';
+          badgeHtml = '<span class="tm-badge skip">恢复</span>';
+          actionHtml = `<span style="color:var(--accent-amber)">↻</span> ${escapeHtml(act)}`;
+          break;
+
+        case 'resume_completed':
+          eventClass = 'end';
+          badgeHtml = '<span class="tm-badge skip">恢复完成</span>';
+          actionHtml = `<span style="color:var(--accent-teal)">✅</span> ${escapeHtml(act)}`;
+          if (obs) actionHtml += ` · ${escapeHtml(obs.slice(0, 60))}`;
+          break;
+
+        case 'action':
+          actionHtml = `<span style="color:var(--accent-teal)">⚡</span> ${escapeHtml(act || t.tool_name || '')}`;
+          break;
+
+        case 'observation':
+          actionHtml = escapeHtml(obs || res || '');
+          break;
+
+        default:
+          actionHtml = escapeHtml(act || stage || '');
+          break;
+      }
+
+      eventsHtml += `<div class="tm-event ${eventClass}">
+        <span class="tm-time">${timeStr}</span>
+        <span class="tm-agent" style="color:${color}">${escapeHtml(agent)}</span>
+        <span class="tm-action">${badgeHtml}${actionHtml}</span>
+        <span class="tm-dur">${durStr}</span>
+      </div>`;
+    });
+  });
+
+  body.innerHTML = summaryHtml + eventsHtml;
+}
 
 // Rebuild constellation on resize
 window.addEventListener('resize', () => buildConstellation());
